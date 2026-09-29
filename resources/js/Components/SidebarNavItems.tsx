@@ -1,15 +1,22 @@
-import { Link, usePage } from '@inertiajs/react';
 import { SidebarNavItemInterface, SidebarNavItem } from './SidebarNavItem';
 
-
-export default function SidebarNavItems({ navItems }: { navItems: SidebarNavItemInterface[] }) {
+export default function SidebarNavItems({
+    navItems,
+    isSubmenu = false,
+}: {
+    navItems: SidebarNavItemInterface[];
+    isSubmenu?: boolean;
+}) {
     return (
-    <>
-      <ul className="sidebar-menu">
-        {navItems && navItems.length > 0 && navItems.map((navItem) => {
-          return <SidebarNavItem key={navItem.href} navItem={navItem} />
-        })}
-      </ul>
-    </>
-  );
+        <ul className={isSubmenu ? "space-y-0.5" : "sidebar-menu px-2 space-y-1"}>
+            {navItems && navItems.length > 0 && navItems.map((navItem) => (
+                <SidebarNavItem
+                    key={navItem.href || navItem.label}
+                    navItem={navItem}
+                    isSubmenu={isSubmenu}
+                />
+            ))}
+        </ul>
+    );
 }
+

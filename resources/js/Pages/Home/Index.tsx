@@ -4,12 +4,11 @@ import ApplicationLogo from '@/Components/ApplicationLogo';
 
 interface HomeProps extends PageProps {
     canLogin?: boolean;
-    canRegister?: boolean;
     laravelVersion?: string;
     phpVersion?: string;
 }
 
-export default function Home({ auth, canLogin, canRegister, laravelVersion, phpVersion }: HomeProps) {
+export default function Home({ auth, canLogin, laravelVersion, phpVersion }: HomeProps) {
     return (
         <>
             <Head title="Welcome" />
@@ -31,25 +30,14 @@ export default function Home({ auth, canLogin, canRegister, laravelVersion, phpV
                                     Dashboard
                                 </Link>
                             ) : (
-                                <>
-                                    {canLogin && (
-                                        <Link
-                                            href={route('login')}
-                                            className="px-4 py-2 text-sm font-medium rounded-lg text-slate-200 hover:text-white hover:bg-white/10 transition duration-150"
-                                        >
-                                            Log in
-                                        </Link>
-                                    )}
-
-                                    {canRegister && (
-                                        <Link
-                                            href={route('register')}
-                                            className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition duration-150 shadow-sm shadow-indigo-500/20"
-                                        >
-                                            Register
-                                        </Link>
-                                    )}
-                                </>
+                                canLogin && (
+                                    <Link
+                                        href={route('login')}
+                                        className="px-4 py-2 text-sm font-medium rounded-lg text-slate-200 hover:text-white hover:bg-white/10 transition duration-150"
+                                    >
+                                        Log in
+                                    </Link>
+                                )
                             )}
                         </nav>
                     </div>
@@ -80,22 +68,12 @@ export default function Home({ auth, canLogin, canRegister, laravelVersion, phpV
                                     Go to Dashboard &rarr;
                                 </Link>
                             ) : (
-                                <>
-                                    <Link
-                                        href={route('login')}
-                                        className="px-6 py-3 text-base font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition duration-150"
-                                    >
-                                        Sign In
-                                    </Link>
-                                    {canRegister && (
-                                        <Link
-                                            href={route('register')}
-                                            className="px-6 py-3 text-base font-semibold rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/10 transition duration-150"
-                                        >
-                                            Create Account
-                                        </Link>
-                                    )}
-                                </>
+                                <Link
+                                    href={route('login')}
+                                    className="px-6 py-3 text-base font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition duration-150"
+                                >
+                                    Sign In
+                                </Link>
                             )}
                         </div>
                     </div>
