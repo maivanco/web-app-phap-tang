@@ -1,0 +1,20 @@
+@use "font";
+@use "variables" as *;
+@use "base";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.bg-gradient-primary {
+    background: $color-primary;
+}
+.bg-gradient-secondary {
+    background: $color-secondary;
+}
+
+@theme {
+    --font-body: $font-body;
+    --color-primary: $color-primary;
+    --color-secondary: $color-secondary;
+}

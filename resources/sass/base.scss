@@ -1,0 +1,37 @@
+@use "variables" as *;
+.bg-color-primary {
+    background: $color-primary;
+}
+
+body {
+    line-height: 1.5;
+    font-weight: 400;
+}
+
+h1 {
+    font-size: 60px;
+}
+
+h2 {
+    font-size: 48px;
+}
+
+h3 {
+    font-size: 32px;
+}
+
+h4 {
+    font-size: 24px;
+}
+
+h5 {
+    font-size: 18px;
+}
+
+h6 {
+    font-size: 16px;
+}
+
+a:hover {
+    color: $color-primary;
+}

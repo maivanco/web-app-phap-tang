@@ -1,0 +1,35 @@
+#!/bin/bash
+set -e  # exit on first error
+
+# Start script for backend + frontend
+# Uses APP_ENV from .env to decide mode
+
+# Load APP_ENV from .env (default to local if not found)
+APP_ENV=$(grep APP_ENV .env | cut -d '=' -f2)
+APP_ENV=${APP_ENV:-local}
+
+
+# Load nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+# Use correct Node version (from .nvmrc if exists, or force 22)
+nvm use 22
+
+
+echo "Starting backend..."
+
+vendor/bin/sail up -d
+
+echo "Installing frontend dependencies..."
+npm install
+
+if [ "$APP_ENV" = "production" ]; then
+  echo "Building frontend for production..."
+  npm run build
+  echo "Starting frontend in preview mode..."
+  npm run preview
+else
+  echo "Starting frontend in development mode..."
+  npm run dev
+fi
