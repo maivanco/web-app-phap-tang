@@ -1,35 +1,89 @@
 #!/bin/bash
 set -e  # exit on first error
 
-# Start script for backend + frontend
-# Uses APP_ENV from .env to decide mode
+# Parse command line arguments
+TARGET_ENV=""
 
-# Load APP_ENV from .env (default to local if not found)
-APP_ENV=$(grep APP_ENV .env | cut -d '=' -f2)
-APP_ENV=${APP_ENV:-local}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env=*)
+      TARGET_ENV="${1#*=}"
+      shift
+      ;;
+    --env)
+      if [[ -n "$2" && "$2" != --* ]]; then
+        TARGET_ENV="$2"
+        shift 2
+      else
+        echo "Error: Argument --env requires a value (e.g. --env local or --env production)."
+        exit 1
+      fi
+      ;;
+    -h|--help)
+      echo "Usage: ./start --env <local|production>"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: ./start --env <local|production>"
+      exit 1
+      ;;
+  esac
+done
 
+# Require --env before executing anything
+if [ -z "$TARGET_ENV" ]; then
+  echo "Error: The --env parameter is required before executing anything."
+  echo "Usage: ./start --env <local|production>"
+  exit 1
+fi
 
-# Load nvm
+# Check if .env file exists
+if [ ! -f .env ]; then
+  echo "Error: .env file does not exist!"
+  echo "Please create your .env file before running this script."
+  echo "You can initialize one by copying the example file:"
+  echo "  cp .env.example .env"
+  exit 1
+fi
+
+# Load nvm if available
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-# Use correct Node version (from .nvmrc if exists, or force 22)
-nvm use 22
+# Use correct Node version (from .nvmrc if exists, or default to 22)
+if command -v nvm &> /dev/null; then
+  nvm use 22 || true
+fi
 
+# Check if APP_ENV in .env differs from passed target env
+DOTENV_ENV=$(grep -E '^APP_ENV=' .env | cut -d '=' -f2 | tr -d ' "\r')
+if [ -n "$DOTENV_ENV" ] && [ "$DOTENV_ENV" != "$TARGET_ENV" ]; then
+  echo "Notice: APP_ENV in .env is '$DOTENV_ENV', while running with target --env='$TARGET_ENV'."
+fi
 
-echo "Starting backend..."
+echo "Starting backend ($TARGET_ENV mode)..."
 
-vendor/bin/sail up -d
+if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
+  if [ -f "docker-compose-prod.yml" ]; then
+    docker compose -f docker-compose-prod.yml up -d
+  else
+    vendor/bin/sail up -d
+  fi
 
-echo "Installing frontend dependencies..."
-npm install
+  echo "Installing frontend dependencies..."
+  npm install
 
-if [ "$APP_ENV" = "production" ]; then
   echo "Building frontend for production..."
   npm run build
   echo "Starting frontend in preview mode..."
   npm run preview
 else
+  vendor/bin/sail up -d
+
+  echo "Installing frontend dependencies..."
+  npm install
+
   echo "Starting frontend in development mode..."
   npm run dev
 fi
