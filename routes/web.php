@@ -17,8 +17,16 @@ use Inertia\Inertia;
 */
 
 Route::get('/', function () {
+    $needsSetup = false;
+    try {
+        $needsSetup = \Illuminate\Support\Facades\Schema::hasTable('users') && \App\Models\User::count() === 0;
+    } catch (\Throwable) {
+        $needsSetup = false;
+    }
+
     return Inertia::render('Home/Index', [
         'canLogin' => Route::has('login'),
+        'needsSetup' => $needsSetup,
         'laravelVersion' => Application::VERSION,
         'phpVersion' => PHP_VERSION,
     ]);

@@ -68,7 +68,8 @@ return new class extends Migration
             $table->string('order_code', 50)->unique();
             $table->date('sale_date');
             $table->foreignId('branch_id')->constrained('branches');
-            $table->string('consultant_name', 150);
+            $table->foreignId('consultant_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->string('consultant_name', 150)->nullable();
             $table->string('customer_name', 150);
             $table->string('customer_phone', 30);
             $table->string('customer_gender', 10);

@@ -260,7 +260,7 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
                                 <tr>
                                     <th scope="col" className="px-6 py-3.5 font-semibold">Người dùng</th>
                                     <th scope="col" className="px-6 py-3.5 font-semibold">Vai trò</th>
-                                    <th scope="col" className="px-6 py-3.5 font-semibold">Telegram Bot</th>
+                                    <th scope="col" className="px-6 py-3.5 font-semibold">Telegram User ID</th>
                                     <th scope="col" className="px-6 py-3.5 font-semibold">Ngày tạo</th>
                                     <th scope="col" className="px-6 py-3.5 font-semibold text-right">Thao tác</th>
                                 </tr>

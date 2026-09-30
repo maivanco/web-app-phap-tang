@@ -2,10 +2,7 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use App\Models\User;
-use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
 {
@@ -14,12 +11,7 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
-        User::updateOrCreate(
-            ['email' => 'siteowner@local.dev'],
-            [
-                'name' => 'Admin',
-                'password' => Hash::make('-^])$Eqy_r>1>dMi'), // default password
-            ]
-        );
+        // Default users are not created automatically.
+        // The first administrator account is created via the setup page (/setup).
     }
 }

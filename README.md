@@ -232,14 +232,12 @@ sail artisan migrate:fresh --seed
 php artisan migrate:fresh --seed
 ```
 
-### Default Test Credentials
+### Initial Administrator Setup
 
-The database seeder provisions two operational user accounts:
-
-| Role | Email | Password | Description |
-|---|---|---|---|
-| **Manager** | `siteowner@local.dev` | `-^])$Eqy_r>1>dMi` | Full administrative access, audit trail, order cancellation, card reconciliation |
-| **Seller** | `seller@phaptang.local` | `Seller@123456` | Sales order entry, expense entry, dashboard metrics view |
+Default users are no longer seeded automatically. When the database is newly initialized and contains no accounts:
+1. Navigate to `/setup` (or visit `/login` / home page, which will display a setup prompt).
+2. Enter the administrator's name, email, and password.
+3. The account is created with the **Admin** role, automatically authenticated, and the `/setup` endpoint is permanently locked against further registrations.
 
 ---
 

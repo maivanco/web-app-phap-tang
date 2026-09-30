@@ -7,7 +7,7 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
 import { Head, Link, useForm } from '@inertiajs/react';
 
-export default function Login({ status, canResetPassword }: { status?: string, canResetPassword: boolean }) {
+export default function Login({ status, canResetPassword, canSetup }: { status?: string, canResetPassword: boolean, canSetup?: boolean }) {
     const { data, setData, post, processing, errors, reset } = useForm({
         email: '',
         password: '',
@@ -31,6 +31,26 @@ export default function Login({ status, canResetPassword }: { status?: string, c
             <Head title="Log in" />
 
             {status && <div className="mb-4 font-medium text-sm text-green-600">{status}</div>}
+
+            {canSetup && (
+                <div className="mb-4 p-4 rounded-lg bg-indigo-50 border border-indigo-200 text-sm text-indigo-900">
+                    <div className="font-semibold text-indigo-950 flex items-center gap-1.5 mb-1">
+                        <svg className="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Initial Setup Required
+                    </div>
+                    <p className="text-xs text-indigo-700 mb-2">
+                        No administrator accounts exist yet. Please initialize the application by creating the first admin account.
+                    </p>
+                    <Link
+                        href={route('setup')}
+                        className="inline-flex items-center text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-md shadow-sm transition"
+                    >
+                        Create Administrator Account &rarr;
+                    </Link>
+                </div>
+            )}
 
             <form onSubmit={submit}>
                 <div>

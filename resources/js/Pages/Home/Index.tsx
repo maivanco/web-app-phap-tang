@@ -4,11 +4,12 @@ import ApplicationLogo from '@/Components/ApplicationLogo';
 
 interface HomeProps extends PageProps {
     canLogin?: boolean;
+    needsSetup?: boolean;
     laravelVersion?: string;
     phpVersion?: string;
 }
 
-export default function Home({ auth, canLogin, laravelVersion, phpVersion }: HomeProps) {
+export default function Home({ auth, canLogin, needsSetup, laravelVersion, phpVersion }: HomeProps) {
     return (
         <>
             <Head title="Welcome" />
@@ -28,6 +29,13 @@ export default function Home({ auth, canLogin, laravelVersion, phpVersion }: Hom
                                     className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition duration-150 shadow-sm shadow-indigo-500/20"
                                 >
                                     Dashboard
+                                </Link>
+                            ) : needsSetup ? (
+                                <Link
+                                    href={route('setup')}
+                                    className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition duration-150 shadow-sm shadow-indigo-500/20"
+                                >
+                                    Initial Setup
                                 </Link>
                             ) : (
                                 canLogin && (
@@ -62,6 +70,13 @@ export default function Home({ auth, canLogin, laravelVersion, phpVersion }: Hom
                                     className="px-6 py-3 text-base font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition duration-150"
                                 >
                                     Go to Dashboard &rarr;
+                                </Link>
+                            ) : needsSetup ? (
+                                <Link
+                                    href={route('setup')}
+                                    className="px-6 py-3 text-base font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition duration-150"
+                                >
+                                    Initial System Setup &rarr;
                                 </Link>
                             ) : (
                                 <Link

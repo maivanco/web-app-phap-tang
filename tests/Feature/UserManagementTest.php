@@ -20,8 +20,14 @@ class UserManagementTest extends TestCase
 
         $this->seed(\App\Modules\CashFlow\database\seeders\CashFlowSeeder::class);
 
-        $this->manager = User::where('role', 'manager')->first();
-        $this->seller = User::where('role', 'seller')->first();
+        $this->manager = User::factory()->create([
+            'role' => 'manager',
+            'name' => 'Test Manager',
+        ]);
+        $this->seller = User::factory()->create([
+            'role' => 'seller',
+            'name' => 'Test Seller',
+        ]);
     }
 
     public function test_manager_can_view_user_management_index(): void

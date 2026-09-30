@@ -6,7 +6,7 @@ export default function Guest({ children }: PropsWithChildren) {
         <div className="min-h-screen flex flex-col sm:justify-center items-center pt-6 sm:pt-0 bg-gray-100">
             <div>
                 <Link href="/" className="flex items-center">
-                    <img src="/images/logo-web-ui-hub.png" alt="Logo" className="max-w-[150px]" />
+                    <img src="/favicon.png" alt="Logo" className="max-w-[150px]" />
                 </Link>
             </div>
 

@@ -2,7 +2,6 @@
 
 namespace App\Modules\CashFlow\database\seeders;
 
-use App\Models\User;
 use App\Modules\CashFlow\Models\Branch;
 use App\Modules\CashFlow\Models\Brand;
 use App\Modules\CashFlow\Models\CustomerSource;
@@ -10,7 +9,6 @@ use App\Modules\CashFlow\Models\FinancialAccount;
 use App\Modules\CashFlow\Models\InitialBalance;
 use App\Modules\CashFlow\Models\TelegramAuthorizedUser;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 
 class CashFlowSeeder extends Seeder
 {
@@ -126,26 +124,7 @@ class CashFlowSeeder extends Seeder
             }
         }
 
-        // 6. Users & Roles
-        User::updateOrCreate(
-            ['email' => 'siteowner@local.dev'],
-            [
-                'name' => 'Quản lý Hệ thống',
-                'role' => 'manager',
-                'password' => Hash::make('-^])$Eqy_r>1>dMi'),
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'seller@phaptang.local'],
-            [
-                'name' => 'Tư Vấn Viên Demo',
-                'role' => 'seller',
-                'password' => Hash::make('Seller@123456'),
-            ]
-        );
-
-        // 7. Telegram Authorized Users demo
+        // 6. Telegram Authorized Users demo
         TelegramAuthorizedUser::updateOrCreate(
             ['telegram_user_id' => 999999999],
             [
