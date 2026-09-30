@@ -1,3 +1,5 @@
+name: phaptang
+
 services:
     laravel.app:
         build:
