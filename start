@@ -62,6 +62,16 @@ if [ -n "$DOTENV_ENV" ] && [ "$DOTENV_ENV" != "$TARGET_ENV" ]; then
   echo "Notice: APP_ENV in .env is '$DOTENV_ENV', while running with target --env='$TARGET_ENV'."
 fi
 
+# Check if vendor directory exists (e.g. freshly cloned repository)
+if [ ! -d "vendor" ]; then
+  echo "Vendor directory not found. Installing composer dependencies..."
+  if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
+    docker compose -f docker-compose-prod.yml run --rm --no-deps laravel.app composer install --no-dev --prefer-dist --optimize-autoloader
+  else
+    docker compose run --rm --no-deps laravel.app composer install --prefer-dist
+  fi
+fi
+
 echo "Starting backend ($TARGET_ENV mode)..."
 
 if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
@@ -72,12 +82,17 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
   fi
 
   echo "Installing frontend dependencies..."
-  npm install
+  if command -v npm &> /dev/null; then
+    npm install
+    echo "Building frontend for production..."
+    npm run build
+  else
+    echo "Host npm not found, installing and building frontend inside docker container..."
+    docker compose -f docker-compose-prod.yml exec -T laravel.app npm install
+    docker compose -f docker-compose-prod.yml exec -T laravel.app npm run build
+  fi
 
-  echo "Building frontend for production..."
-  npm run build
-  echo "Starting frontend in preview mode..."
-  npm run preview
+  echo "Production environment is ready and running."
 else
   vendor/bin/sail up -d
 
