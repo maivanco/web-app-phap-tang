@@ -1,8 +1,13 @@
 import { admin_url } from "@/utils/helper";
 import SidebarNavItems from "@/Components/SidebarNavItems";
 import { SidebarNavItemInterface } from "@/Components/SidebarNavItem";
+import { usePage } from "@inertiajs/react";
+import { PageProps } from "@/types";
 
 export default function Sidebar() {
+    const { auth } = usePage<PageProps>().props;
+    const isManagerOrAdmin = auth?.user?.role === 'admin' || auth?.user?.role === 'manager';
+
     const navLinks: SidebarNavItemInterface[] = [
         {
             label: 'Tổng quan & Báo cáo',
@@ -57,6 +62,15 @@ export default function Sidebar() {
                 },
             ],
         },
+        ...(isManagerOrAdmin
+            ? [
+                  {
+                      label: 'Quản lý Người dùng',
+                      icon: '👥',
+                      href: admin_url('cashflow/users'),
+                  },
+              ]
+            : []),
         {
             label: 'Thông tin cá nhân',
             icon: '👤',

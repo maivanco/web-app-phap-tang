@@ -16,6 +16,7 @@ class AuthServiceProvider extends ServiceProvider
         \App\Modules\CashFlow\Models\Order::class => \App\Modules\CashFlow\Policies\OrderPolicy::class,
         \App\Modules\CashFlow\Models\Expense::class => \App\Modules\CashFlow\Policies\ExpensePolicy::class,
         \App\Modules\CashFlow\Models\InternalTransfer::class => \App\Modules\CashFlow\Policies\InternalTransferPolicy::class,
+        \App\Models\User::class => \App\Modules\CashFlow\Policies\UserPolicy::class,
     ];
 
     /**

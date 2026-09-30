@@ -6,6 +6,7 @@ use App\Modules\CashFlow\Controllers\ExpenseController;
 use App\Modules\CashFlow\Controllers\InternalTransferController;
 use App\Modules\CashFlow\Controllers\OrderController;
 use App\Modules\CashFlow\Controllers\TelegramWebhookController;
+use App\Modules\CashFlow\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 // Public Telegram Webhook Endpoint
@@ -16,6 +17,12 @@ Route::post('/api/telegram/webhook', [TelegramWebhookController::class, 'handle'
 Route::middleware(['auth'])->prefix('admin/cashflow')->name('admin.cashflow.')->group(function () {
     // Dashboard & Reports
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // User Management
+    Route::get('/users', [UserController::class, 'index'])->name('users.index');
+    Route::post('/users', [UserController::class, 'store'])->name('users.store');
+    Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
 
     // Sales Orders
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
