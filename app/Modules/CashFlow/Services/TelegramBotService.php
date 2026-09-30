@@ -2,6 +2,7 @@
 
 namespace App\Modules\CashFlow\Services;
 
+use App\Models\User;
 use App\Modules\CashFlow\Models\Branch;
 use App\Modules\CashFlow\Models\Brand;
 use App\Modules\CashFlow\Models\CustomerSource;
@@ -155,7 +156,7 @@ class TelegramBotService
                 'current_step' => 2,
                 'draft_data' => ['items' => []],
             ]);
-            $this->sendMessage($chatId, "📝 *NHẬP ĐƠN BÁN HÀNG*\n\nBước 2: Nhập *Tên tư vấn viên*:", ['parse_mode' => 'Markdown']);
+            $this->promptConsultantSelection($chatId, "📝 *NHẬP ĐƠN BÁN HÀNG*");
             return;
         }
 
@@ -191,6 +192,21 @@ class TelegramBotService
         ]);
     }
 
+    protected function promptConsultantSelection(int $chatId, ?string $prefix = null): void
+    {
+        $users = User::orderBy('name')->get();
+        $buttons = [];
+        foreach ($users as $user) {
+            $buttons[] = [['text' => "👤 {$user->name}" . ($user->role ? " ({$user->role})" : ""), 'callback_data' => "CONSULTANT_{$user->id}"]];
+        }
+
+        $msg = ($prefix ? "{$prefix}\n\n" : "") . "👤 *Bước 2: Chọn tư vấn viên từ danh sách:*";
+        $this->sendMessage($chatId, $msg, [
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
+        ]);
+    }
+
     /**
      * Handle Step-by-Step Order Flow.
      */
@@ -211,13 +227,30 @@ class TelegramBotService
                     'selected_branch_id' => $branch->id,
                     'current_step' => 2,
                 ]);
-                $this->sendMessage($chatId, "✅ Đã chọn chi nhánh: *{$branch->name}*\n\nBước 2: Nhập *Tên tư vấn viên*:", ['parse_mode' => 'Markdown']);
+                $this->promptConsultantSelection($chatId, "✅ Đã chọn chi nhánh: *{$branch->name}*");
                 break;
 
-            case 2: // Consultant name
-                $draft['consultant_name'] = trim($input);
+            case 2: // Consultant selection
+                $consultant = null;
+                if (str_starts_with($input, 'CONSULTANT_')) {
+                    $consultantId = (int) substr($input, strlen('CONSULTANT_'));
+                    $consultant = User::find($consultantId);
+                } else {
+                    $inputName = trim($input);
+                    $consultant = User::where('name', $inputName)
+                        ->orWhere('name', 'like', "%{$inputName}%")
+                        ->first();
+                }
+
+                if (!$consultant) {
+                    $this->promptConsultantSelection($chatId, "⚠️ Vui lòng chọn tư vấn viên từ danh sách bên dưới:");
+                    return;
+                }
+
+                $draft['consultant_id'] = $consultant->id;
+                $draft['consultant_name'] = $consultant->name;
                 $session->update(['draft_data' => $draft, 'current_step' => 3]);
-                $this->sendMessage($chatId, "👤 Nhập *Tên khách hàng*:", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, "✅ Đã chọn tư vấn viên: *{$consultant->name}*\n\nBước 3: Nhập *Tên khách hàng*:", ['parse_mode' => 'Markdown']);
                 break;
 
             case 3: // Customer name
@@ -477,7 +510,7 @@ class TelegramBotService
                 "📄 Mã đơn: `{$order->order_code}`\n" .
                 "📅 Ngày bán: {$order->sale_date->format('d/m/Y')}\n" .
                 "🏢 Chi nhánh: {$order->branch->name}\n" .
-                "👤 Tư vấn viên: {$order->consultant_name}\n" .
+                "👤 Tư vấn viên: " . ($order->consultant?->name ?? $order->consultant_name) . "\n" .
                 "👥 Khách hàng: {$order->customer_name} ({$order->customer_phone}) - {$order->customer_gender}\n" .
                 "🌐 Nguồn: {$order->customerSource->name}\n\n" .
                 "📦 *Chi tiết sản phẩm:*\n{$itemRows}\n" .

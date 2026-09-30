@@ -24,6 +24,8 @@ interface Order {
     order_code: string;
     sale_date: string;
     branch?: { name: string; code: string };
+    consultant_id?: number;
+    consultant?: { id: number; name: string };
     consultant_name: string;
     customer_name: string;
     customer_phone: string;
@@ -246,7 +248,7 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                                             <div className="font-medium text-gray-900">{order.customer_name}</div>
                                             <div className="text-[11px] text-gray-500">{order.customer_phone}</div>
                                         </td>
-                                        <td className="px-4 py-3 text-gray-600">{order.consultant_name}</td>
+                                        <td className="px-4 py-3 text-gray-600">{order.consultant?.name || order.consultant_name}</td>
                                         <td className="px-4 py-3 text-right text-gray-600">
                                             {formatCurrency(order.gross_amount)}
                                         </td>

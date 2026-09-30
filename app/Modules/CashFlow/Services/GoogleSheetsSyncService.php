@@ -33,7 +33,7 @@ class GoogleSheetsSyncService
             'created_by' => $order->creator?->name ?? ($order->telegram_user_id ? "TG:{$order->telegram_user_id}" : 'System'),
             'branch_code' => $order->branch?->code,
             'branch_name' => $order->branch?->name,
-            'consultant_name' => $order->consultant_name,
+            'consultant_name' => $order->consultant?->name ?? $order->consultant_name ?? '',
             'customer_name' => $order->customer_name,
             'customer_phone' => "'" . $order->customer_phone, // Force text with leading zero in Sheets
             'customer_gender' => $order->customer_gender,

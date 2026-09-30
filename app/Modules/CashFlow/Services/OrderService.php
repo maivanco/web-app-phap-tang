@@ -2,6 +2,7 @@
 
 namespace App\Modules\CashFlow\Services;
 
+use App\Models\User;
 use App\Modules\CashFlow\Models\Branch;
 use App\Modules\CashFlow\Models\FinancialAccount;
 use App\Modules\CashFlow\Models\Order;
@@ -61,12 +62,29 @@ class OrderService
             $orderCount = Order::whereDate('sale_date', $saleDate)->count() + 1;
             $orderCode = sprintf('DH-%s-%04d', $datePrefix, $orderCount);
 
+            // Resolve consultant (user id and name)
+            $consultantId = $data['consultant_id'] ?? null;
+            $consultantName = isset($data['consultant_name']) ? trim((string) $data['consultant_name']) : null;
+
+            if ($consultantId) {
+                $consultant = User::find($consultantId);
+                if ($consultant) {
+                    $consultantName = $consultant->name;
+                }
+            } elseif (!empty($consultantName)) {
+                $consultant = User::where('name', $consultantName)->first();
+                if ($consultant) {
+                    $consultantId = $consultant->id;
+                }
+            }
+
             // Create Order record
             $order = Order::create([
                 'order_code' => $orderCode,
                 'sale_date' => $saleDate,
                 'branch_id' => $branch->id,
-                'consultant_name' => trim($data['consultant_name']),
+                'consultant_id' => $consultantId,
+                'consultant_name' => $consultantName,
                 'customer_name' => trim($data['customer_name']),
                 'customer_phone' => $phone,
                 'customer_gender' => $data['customer_gender'],
@@ -176,8 +194,24 @@ class OrderService
                 $data['discount_code'] ?? $order->discount_code
             );
 
+            $consultantId = $data['consultant_id'] ?? $order->consultant_id;
+            $consultantName = array_key_exists('consultant_name', $data) ? $data['consultant_name'] : $order->consultant_name;
+
+            if (isset($data['consultant_id']) && $data['consultant_id'] != $order->consultant_id) {
+                $consultant = User::find($data['consultant_id']);
+                if ($consultant) {
+                    $consultantName = $consultant->name;
+                }
+            } elseif (!empty($data['consultant_name']) && $data['consultant_name'] !== $order->consultant_name) {
+                $consultant = User::where('name', $data['consultant_name'])->first();
+                if ($consultant) {
+                    $consultantId = $consultant->id;
+                }
+            }
+
             $order->update([
-                'consultant_name' => $data['consultant_name'] ?? $order->consultant_name,
+                'consultant_id' => $consultantId,
+                'consultant_name' => $consultantName,
                 'customer_name' => $data['customer_name'] ?? $order->customer_name,
                 'customer_phone' => $data['customer_phone'] ?? $order->customer_phone,
                 'customer_gender' => $data['customer_gender'] ?? $order->customer_gender,

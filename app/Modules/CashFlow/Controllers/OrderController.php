@@ -3,6 +3,7 @@
 namespace App\Modules\CashFlow\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Modules\CashFlow\Models\Branch;
 use App\Modules\CashFlow\Models\Brand;
 use App\Modules\CashFlow\Models\CustomerSource;
@@ -26,7 +27,7 @@ class OrderController extends Controller
 
     public function index(Request $request): Response
     {
-        $query = Order::with(['branch', 'customerSource', 'payment.account', 'items.brand', 'creator'])
+        $query = Order::with(['branch', 'customerSource', 'payment.account', 'items.brand', 'creator', 'consultant'])
             ->orderByDesc('id');
 
         if ($request->filled('search')) {
@@ -35,7 +36,8 @@ class OrderController extends Controller
                 $q->where('order_code', 'like', "%{$search}%")
                     ->orWhere('customer_name', 'like', "%{$search}%")
                     ->orWhere('customer_phone', 'like', "%{$search}%")
-                    ->orWhere('consultant_name', 'like', "%{$search}%");
+                    ->orWhere('consultant_name', 'like', "%{$search}%")
+                    ->orWhereHas('consultant', fn($uq) => $uq->where('name', 'like', "%{$search}%"));
             });
         }
 
@@ -73,6 +75,7 @@ class OrderController extends Controller
                 ->where('type', 'bank')
                 ->orderBy('letter_code')
                 ->get(),
+            'consultants' => User::select('id', 'name', 'email', 'role')->orderBy('name')->get(),
             'selected_branch_id' => $selectedBranchId,
         ]);
     }
@@ -82,7 +85,8 @@ class OrderController extends Controller
         $validated = $request->validate([
             'branch_id' => 'required|exists:branches,id',
             'sale_date' => 'nullable|date',
-            'consultant_name' => 'required|string|max:150',
+            'consultant_id' => 'required_without:consultant_name|nullable|exists:users,id',
+            'consultant_name' => 'nullable|string|max:150',
             'customer_name' => 'required|string|max:150',
             'customer_phone' => ['required', 'string', 'regex:/^0[0-9]{8,11}$/'],
             'customer_gender' => 'required|in:Nam,Nữ',
@@ -135,6 +139,7 @@ class OrderController extends Controller
             'payment.settlementAccount',
             'payment.settledByUser',
             'creator',
+            'consultant',
             'audits.user',
         ]);
 
@@ -149,7 +154,8 @@ class OrderController extends Controller
 
         $validated = $request->validate([
             'reason' => 'required|string|min:5',
-            'consultant_name' => 'required|string|max:150',
+            'consultant_id' => 'nullable|exists:users,id',
+            'consultant_name' => 'nullable|string|max:150',
             'customer_name' => 'required|string|max:150',
             'customer_phone' => ['required', 'string', 'regex:/^0[0-9]{8,11}$/'],
             'customer_gender' => 'required|in:Nam,Nữ',

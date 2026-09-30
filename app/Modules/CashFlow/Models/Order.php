@@ -19,6 +19,7 @@ class Order extends Model
         'order_code',
         'sale_date',
         'branch_id',
+        'consultant_id',
         'consultant_name',
         'customer_name',
         'customer_phone',
@@ -38,12 +39,18 @@ class Order extends Model
 
     protected $casts = [
         'sale_date' => 'date',
+        'consultant_id' => 'integer',
         'discount_rate' => 'decimal:4',
         'gross_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'net_revenue' => 'decimal:2',
         'version' => 'integer',
     ];
+
+    public function consultant(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'consultant_id');
+    }
 
     public function branch(): BelongsTo
     {

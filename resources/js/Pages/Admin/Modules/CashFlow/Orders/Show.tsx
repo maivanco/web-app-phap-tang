@@ -32,6 +32,8 @@ interface OrderDetailProps extends PageProps {
         order_code: string;
         sale_date: string;
         branch?: { name: string; code: string };
+        consultant_id?: number;
+        consultant?: { id: number; name: string };
         consultant_name: string;
         customer_name: string;
         customer_phone: string;
@@ -116,7 +118,7 @@ export default function OrderShow({ auth, order }: OrderDetailProps) {
                         <div className="mt-2 space-y-1">
                             <div>
                                 <span className="text-gray-500">Tư vấn viên:</span>{' '}
-                                <strong className="text-gray-900">{order.consultant_name}</strong>
+                                <strong className="text-gray-900">{order.consultant?.name || order.consultant_name}</strong>
                             </div>
                             <div>
                                 <span className="text-gray-500">Người tạo bản ghi:</span>{' '}

@@ -28,11 +28,19 @@ interface FinancialAccount {
     name: string;
 }
 
+interface Consultant {
+    id: number;
+    name: string;
+    email?: string;
+    role?: string;
+}
+
 interface CreateOrderProps extends PageProps {
     branches: Branch[];
     brands: Brand[];
     customer_sources: CustomerSource[];
     bank_accounts: FinancialAccount[];
+    consultants?: Consultant[];
     selected_branch_id?: number | null;
 }
 
@@ -49,11 +57,13 @@ export default function CreateOrder({
     brands,
     customer_sources,
     bank_accounts,
+    consultants = [],
     selected_branch_id,
 }: CreateOrderProps) {
     const defaultBranchId = selected_branch_id || branches[0]?.id || 1;
     const defaultBrandId = brands[0]?.id || 1;
     const defaultSourceId = customer_sources[0]?.id || 1;
+    const defaultConsultantId = auth.user?.id || (consultants.length > 0 ? consultants[0].id : '');
 
     const [items, setItems] = useState<OrderItemInput[]>([
         { product_name: '', brand_id: defaultBrandId, quantity: 1, unit_price: 0 },
@@ -62,7 +72,7 @@ export default function CreateOrder({
     const { data, setData, post, processing, errors } = useForm({
         branch_id: defaultBranchId,
         sale_date: new Date().toISOString().split('T')[0],
-        consultant_name: auth.user.name || '',
+        consultant_id: defaultConsultantId,
         customer_name: '',
         customer_phone: '',
         customer_gender: 'Nam',
@@ -235,16 +245,21 @@ export default function CreateOrder({
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                                    Tên tư vấn viên <span className="text-red-500">*</span>
+                                    Tư vấn viên <span className="text-red-500">*</span>
                                 </label>
-                                <input
-                                    type="text"
-                                    value={data.consultant_name}
-                                    onChange={(e) => setData('consultant_name', e.target.value)}
-                                    placeholder="Nhập tên người tư vấn"
-                                    className="w-full rounded-md border-gray-300 text-sm shadow-sm"
-                                />
-                                {errors.consultant_name && <p className="text-xs text-red-600 mt-1">{errors.consultant_name}</p>}
+                                <select
+                                    value={data.consultant_id}
+                                    onChange={(e) => setData('consultant_id', e.target.value ? Number(e.target.value) : '')}
+                                    className="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-amber-500 focus:ring-amber-500"
+                                >
+                                    <option value="">-- Chọn tư vấn viên --</option>
+                                    {consultants.map((u) => (
+                                        <option key={u.id} value={u.id}>
+                                            {u.name} {u.role ? `(${u.role})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                {errors.consultant_id && <p className="text-xs text-red-600 mt-1">{errors.consultant_id}</p>}
                             </div>
 
                             <div>

@@ -387,5 +387,101 @@ class CashFlowTest extends TestCase
             'payment_method' => 'cash',
         ]);
     }
+
+    public function test_order_creation_with_consultant_id_via_service(): void
+    {
+        $orderService = app(OrderService::class);
+
+        $order = $orderService->createOrder([
+            'branch_id' => $this->branchA->id,
+            'consultant_id' => $this->seller->id,
+            'customer_name' => 'Nguyễn Thị Hoa',
+            'customer_phone' => '0987654321',
+            'customer_gender' => 'Nữ',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'items' => [
+                ['product_name' => 'Vòng Trầm Hương', 'brand_id' => $this->brandPhapTang->id, 'quantity' => 1, 'unit_price' => 500000],
+            ],
+            'payment_method' => 'cash',
+        ]);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'consultant_id' => $this->seller->id,
+            'consultant_name' => $this->seller->name,
+        ]);
+        $this->assertEquals($this->seller->id, $order->consultant->id);
+    }
+
+    public function test_order_creation_via_http_post_with_consultant_id(): void
+    {
+        $response = $this->actingAs($this->manager)->post(route('admin.cashflow.orders.store'), [
+            'branch_id' => $this->branchA->id,
+            'consultant_id' => $this->seller->id,
+            'customer_name' => 'Lê Văn C',
+            'customer_phone' => '0901234567',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'items' => [
+                ['product_name' => 'Chuỗi Ngọc', 'brand_id' => $this->brandMgems->id, 'quantity' => 1, 'unit_price' => 300000],
+            ],
+            'payment_method' => 'cash',
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('orders', [
+            'consultant_id' => $this->seller->id,
+            'consultant_name' => $this->seller->name,
+            'customer_name' => 'Lê Văn C',
+        ]);
+    }
+
+    public function test_order_create_screen_provides_consultants(): void
+    {
+        $response = $this->actingAs($this->manager)->get(route('admin.cashflow.orders.create'));
+        $response->assertOk();
+        $response->assertInertia(fn ($page) =>
+            $page->component('Admin/Modules/CashFlow/Orders/Create')
+                ->has('consultants')
+        );
+    }
+
+    public function test_telegram_bot_order_consultant_selection(): void
+    {
+        \Illuminate\Support\Facades\Http::fake();
+
+        \App\Modules\CashFlow\Models\TelegramAuthorizedUser::create([
+            'telegram_user_id' => 987654321,
+            'full_name' => 'Test User',
+            'role' => 'seller',
+            'is_active' => true,
+        ]);
+
+        $session = \App\Modules\CashFlow\Models\TelegramSession::create([
+            'telegram_chat_id' => 123456789,
+            'telegram_user_id' => 987654321,
+            'current_mode' => 'order',
+            'current_step' => 2,
+            'selected_branch_id' => $this->branchA->id,
+            'draft_data' => ['items' => []],
+        ]);
+
+        $botService = app(\App\Modules\CashFlow\Services\TelegramBotService::class);
+        $botService->handleUpdate([
+            'callback_query' => [
+                'id' => 'cb-1',
+                'from' => ['id' => 987654321, 'first_name' => 'Test'],
+                'message' => ['chat' => ['id' => 123456789], 'message_id' => 999],
+                'data' => "CONSULTANT_{$this->seller->id}",
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(3, $session->current_step);
+        $this->assertEquals($this->seller->id, $session->draft_data['consultant_id']);
+        $this->assertEquals($this->seller->name, $session->draft_data['consultant_name']);
+    }
 }
 
