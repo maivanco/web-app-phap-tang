@@ -17,8 +17,8 @@ class GoogleSheetsSyncService
 
     public function __construct()
     {
-        $this->webhookUrl = config('services.google_sheets.webhook_url', env('GOOGLE_SHEETS_WEBHOOK_URL'));
-        $this->spreadsheetId = config('services.google_sheets.spreadsheet_id', env('GOOGLE_SHEETS_SPREADSHEET_ID'));
+        $this->webhookUrl = config('services.google_sheets.webhook_url');
+        $this->spreadsheetId = config('services.google_sheets.spreadsheet_id');
     }
 
     /**
