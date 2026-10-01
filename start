@@ -3,6 +3,7 @@ set -e  # exit on first error
 
 # Parse command line arguments
 TARGET_ENV=""
+DOCKER_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -20,13 +21,26 @@ while [[ $# -gt 0 ]]; do
       fi
       ;;
     -h|--help)
-      echo "Usage: ./start --env <local|production>"
+      echo "Usage: ./start --env <local|production> [docker compose options]"
+      echo ""
+      echo "Options:"
+      echo "  --env <env>    Target environment (local, production)"
+      echo "  -h, --help     Show this help message"
+      echo ""
+      echo "Examples:"
+      echo "  ./start --env local"
+      echo "  ./start --env local --build"
+      echo "  ./start --env production --build --force-recreate"
       exit 0
       ;;
+    --)
+      shift
+      DOCKER_ARGS+=("$@")
+      break
+      ;;
     *)
-      echo "Unknown option: $1"
-      echo "Usage: ./start --env <local|production>"
-      exit 1
+      DOCKER_ARGS+=("$1")
+      shift
       ;;
   esac
 done
@@ -34,7 +48,7 @@ done
 # Require --env before executing anything
 if [ -z "$TARGET_ENV" ]; then
   echo "Error: The --env parameter is required before executing anything."
-  echo "Usage: ./start --env <local|production>"
+  echo "Usage: ./start --env <local|production> [docker compose options]"
   exit 1
 fi
 
@@ -72,13 +86,17 @@ if [ ! -d "vendor" ]; then
   fi
 fi
 
-echo "Starting backend ($TARGET_ENV mode)..."
+if [ ${#DOCKER_ARGS[@]} -gt 0 ]; then
+  echo "Starting backend ($TARGET_ENV mode) with docker options: ${DOCKER_ARGS[*]}..."
+else
+  echo "Starting backend ($TARGET_ENV mode)..."
+fi
 
 if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
   if [ -f "docker-compose-prod.yml" ]; then
-    docker compose -f docker-compose-prod.yml up -d
+    docker compose -f docker-compose-prod.yml up -d "${DOCKER_ARGS[@]}"
   else
-    vendor/bin/sail up -d
+    vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
   fi
 
   echo "Installing frontend dependencies..."
@@ -94,7 +112,7 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
 
   echo "Production environment is ready and running."
 else
-  vendor/bin/sail up -d
+  vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
 
   echo "Installing frontend dependencies..."
   npm install
