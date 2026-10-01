@@ -109,8 +109,8 @@ return new class extends Migration
         Schema::create('order_payments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained('orders')->cascadeOnDelete();
-            $table->string('method', 20); // cash, bank_transfer, card_swipe
-            $table->foreignId('account_id')->constrained('financial_accounts');
+            $table->string('method', 20); // cash, bank_transfer, card_swipe, unpaid
+            $table->foreignId('account_id')->nullable()->constrained('financial_accounts');
             $table->decimal('amount', 15, 2)->default(0);
             $table->date('payment_date');
             $table->date('card_swipe_date')->nullable();

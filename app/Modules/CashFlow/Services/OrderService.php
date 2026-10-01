@@ -117,7 +117,7 @@ class OrderService
             }
 
             // Handle Payment
-            $method = $data['payment_method']; // 'cash', 'bank_transfer', or 'card_swipe'
+            $method = $data['payment_method']; // 'cash', 'bank_transfer', 'card_swipe', or 'unpaid'
             $accountId = null;
             $paymentStatus = 'completed';
             $swipeDate = null;
@@ -132,6 +132,9 @@ class OrderService
                 $accountId = $gateway->id;
                 $paymentStatus = 'pending_settlement';
                 $swipeDate = $data['card_swipe_date'] ?? $saleDate;
+            } elseif ($method === 'unpaid') {
+                $accountId = null;
+                $paymentStatus = 'unpaid';
             } else { // bank_transfer
                 if (empty($data['payment_account_id'])) {
                     throw new InvalidArgumentException("Bank account must be selected for bank transfer");

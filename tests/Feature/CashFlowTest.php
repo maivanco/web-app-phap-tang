@@ -538,6 +538,126 @@ class CashFlowTest extends TestCase
         $response->assertRedirect();
         $response->assertSessionHas('success');
     }
+
+    public function test_order_creation_with_unpaid_payment_method(): void
+    {
+        $orderService = app(OrderService::class);
+        $treasuryService = app(TreasuryService::class);
+
+        $order = $orderService->createOrder([
+            'branch_id' => $this->branchA->id,
+            'consultant_name' => 'Seller A',
+            'customer_name' => 'Khách nợ',
+            'customer_phone' => '0912345678',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'items' => [
+                ['product_name' => 'Nhang Trầm', 'brand_id' => $this->brandPhapTang->id, 'quantity' => 2, 'unit_price' => 100000],
+            ],
+            'payment_method' => 'unpaid',
+        ]);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'net_revenue' => 200000,
+        ]);
+
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'method' => 'unpaid',
+            'account_id' => null,
+            'status' => 'unpaid',
+            'amount' => 200000,
+        ]);
+
+        // Unpaid orders do NOT increase any cash fund or bank balance
+        $this->assertEquals(0, $treasuryService->getAccountBalance($this->cashA)['current_balance']);
+        $this->assertEquals(0, $treasuryService->getAccountBalance($this->bankPhu)['current_balance']);
+    }
+
+    public function test_order_creation_with_unpaid_via_http_post(): void
+    {
+        $response = $this->actingAs($this->manager)->post(route('admin.cashflow.orders.store'), [
+            'branch_id' => $this->branchA->id,
+            'consultant_id' => $this->seller->id,
+            'customer_name' => 'Khách Mua Chưa Trả',
+            'customer_phone' => '0901234567',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'items' => [
+                ['product_name' => 'Vòng Trầm', 'brand_id' => $this->brandPhapTang->id, 'quantity' => 1, 'unit_price' => 350000],
+            ],
+            'payment_method' => 'unpaid',
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('order_payments', [
+            'method' => 'unpaid',
+            'account_id' => null,
+            'status' => 'unpaid',
+            'amount' => 350000,
+        ]);
+    }
+
+    public function test_telegram_bot_order_creation_with_unpaid_payment_callback(): void
+    {
+        \App\Modules\CashFlow\Models\TelegramAuthorizedUser::create([
+            'telegram_user_id' => 999111222,
+            'full_name' => 'Seller Bot',
+            'role' => 'seller',
+            'is_active' => true,
+        ]);
+
+        $session = \App\Modules\CashFlow\Models\TelegramSession::create([
+            'telegram_chat_id' => 123456789,
+            'telegram_user_id' => 999111222,
+            'current_mode' => 'order',
+            'current_step' => 14,
+            'selected_branch_id' => $this->branchA->id,
+            'draft_data' => [
+                'branch_id' => $this->branchA->id,
+                'consultant_id' => $this->seller->id,
+                'consultant_name' => $this->seller->name,
+                'customer_name' => 'Khách Test Bot',
+                'customer_phone' => '0908889999',
+                'customer_gender' => 'Nữ',
+                'customer_source_id' => $this->sourceTiktok->id,
+                'discount_code' => 'E',
+                'note' => 'Giao hàng thu sau',
+                'items' => [
+                    [
+                        'product_name' => 'Nhang Vòng',
+                        'brand_id' => $this->brandPhapTang->id,
+                        'quantity' => 1,
+                        'unit_price' => 150000,
+                    ],
+                ],
+            ],
+        ]);
+
+        $botService = app(\App\Modules\CashFlow\Services\TelegramBotService::class);
+        $botService->handleUpdate([
+            'callback_query' => [
+                'id' => 'cb-unpaid',
+                'from' => ['id' => 999111222, 'first_name' => 'Seller'],
+                'message' => ['chat' => ['id' => 123456789], 'message_id' => 999],
+                'data' => 'PAY_unpaid',
+            ],
+        ]);
+
+        $this->assertDatabaseHas('order_payments', [
+            'method' => 'unpaid',
+            'account_id' => null,
+            'status' => 'unpaid',
+            'amount' => 150000,
+        ]);
+
+        $session->refresh();
+        $this->assertNull($session->current_mode);
+        $this->assertEquals(0, $session->current_step);
+    }
 }
 
 

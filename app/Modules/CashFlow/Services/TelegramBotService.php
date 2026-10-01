@@ -405,7 +405,10 @@ class TelegramBotService
                         'inline_keyboard' => [
                             [
                                 ['text' => '💵 Tiền mặt', 'callback_data' => 'PAY_cash'],
-                                ['text' => '🏦 Chuyển khoản', 'callback_data' => 'PAY_bank'],
+                                ['text' => '🏦 CK (Chuyển khoản)', 'callback_data' => 'PAY_bank'],
+                            ],
+                            [
+                                ['text' => '⏳ Chưa thanh toán', 'callback_data' => 'PAY_unpaid'],
                             ],
                         ],
                     ]),
@@ -413,8 +416,15 @@ class TelegramBotService
                 break;
 
             case 14: // Payment method
-                if ($input === 'PAY_cash') {
+                $cleanInput = trim($input);
+                if ($cleanInput === 'PAY_cash' || mb_strtolower($cleanInput) === 'tiền mặt') {
                     $draft['payment_method'] = 'cash';
+                    $this->finalizeOrderCreation($session, $draft, $chatId, $userId);
+                    return;
+                }
+
+                if ($cleanInput === 'PAY_unpaid' || mb_strtolower($cleanInput) === 'chưa thanh toán') {
+                    $draft['payment_method'] = 'unpaid';
                     $this->finalizeOrderCreation($session, $draft, $chatId, $userId);
                     return;
                 }
@@ -502,9 +512,13 @@ class TelegramBotService
                 );
             }
 
-            $paymentText = $order->payment->method === 'cash' ? "Tiền mặt ({$order->branch->name})" :
-                ($order->payment->method === 'card_swipe' ? "QUẸT THẺ (Chờ tiền về - Ngày quẹt: {$order->payment->card_swipe_date})" :
-                "Chuyển khoản ({$order->payment->account?->name})");
+            $paymentMethod = $order->payment?->method;
+            $paymentText = match ($paymentMethod) {
+                'cash' => "Tiền mặt ({$order->branch->name})",
+                'card_swipe' => "QUẸT THẺ (Chờ tiền về - Ngày quẹt: {$order->payment->card_swipe_date})",
+                'unpaid' => "Chưa thanh toán",
+                default => "Chuyển khoản ({$order->payment?->account?->name})",
+            };
 
             $msg = "✅ *ĐÃ LƯU ĐƠN HÀNG THÀNH CÔNG!*\n\n" .
                 "📄 Mã đơn: `{$order->order_code}`\n" .

@@ -78,7 +78,7 @@ class GoogleSheetsSyncService
             'payment_id' => "PAY-{$payment->id}",
             'order_id' => $payment->order?->order_code,
             'method' => $payment->method,
-            'account' => $payment->account?->name,
+            'account' => $payment->account?->name ?? ($payment->method === 'unpaid' ? 'Chưa thanh toán' : ''),
             'amount' => (float) $payment->amount,
             'payment_date' => $payment->payment_date->format('Y-m-d'),
             'card_swipe_date' => $payment->card_swipe_date?->format('Y-m-d') ?? '',

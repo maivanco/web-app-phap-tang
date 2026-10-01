@@ -300,6 +300,10 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                                                 <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-[11px] font-medium">
                                                     💳 Quẹt thẻ (Chờ về)
                                                 </span>
+                                            ) : order.payment?.method === 'unpaid' ? (
+                                                <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[11px] font-medium">
+                                                    ⏳ Chưa thanh toán
+                                                </span>
                                             ) : (
                                                 <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-[11px] font-medium">
                                                     🏦 {order.payment?.account?.name}

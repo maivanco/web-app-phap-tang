@@ -98,7 +98,7 @@ class OrderController extends Controller
             'items.*.brand_id' => 'required|exists:brands,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.unit_price' => 'required|numeric|min:0',
-            'payment_method' => 'required|in:cash,bank_transfer,card_swipe',
+            'payment_method' => 'required|in:cash,bank_transfer,card_swipe,unpaid',
             'payment_account_id' => 'nullable|required_if:payment_method,bank_transfer|exists:financial_accounts,id',
             'card_swipe_date' => 'nullable|required_if:payment_method,card_swipe|date',
         ]);

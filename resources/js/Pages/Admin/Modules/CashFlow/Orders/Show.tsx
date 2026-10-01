@@ -298,10 +298,16 @@ export default function OrderShow({ auth, order }: OrderDetailProps) {
                                         ? '💵 Tiền mặt'
                                         : order.payment.method === 'card_swipe'
                                         ? '💳 Quẹt thẻ (Cổng F)'
+                                        : order.payment.method === 'unpaid'
+                                        ? '⏳ Chưa thanh toán'
                                         : '🏦 Chuyển khoản ngân hàng'}
                                 </div>
                                 <div className="text-[11px] text-gray-500 mt-1">
-                                    Tài khoản / Quỹ: <strong>{order.payment.account?.name}</strong>
+                                    {order.payment.account?.name ? (
+                                        <>Tài khoản / Quỹ: <strong>{order.payment.account.name}</strong></>
+                                    ) : (
+                                        <span className="text-amber-600">Đơn hàng công nợ (chưa thu)</span>
+                                    )}
                                 </div>
                             </div>
 
@@ -325,6 +331,10 @@ export default function OrderShow({ auth, order }: OrderDetailProps) {
                                     ) : order.payment.status === 'pending_settlement' ? (
                                         <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium">
                                             ⏳ Chờ tiền thẻ về
+                                        </span>
+                                    ) : order.payment.status === 'unpaid' ? (
+                                        <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded font-medium">
+                                            ⏳ Chưa thanh toán
                                         </span>
                                     ) : (
                                         <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-medium">

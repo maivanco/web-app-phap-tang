@@ -496,7 +496,7 @@ export default function CreateOrder({
                             <span>💳</span> Bước 6: Hình thức thanh toán
                         </h3>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                             <label
                                 className={`border rounded-xl p-3.5 flex items-center gap-3 cursor-pointer transition ${
                                     data.payment_method === 'cash'
@@ -557,6 +557,27 @@ export default function CreateOrder({
                                 <div>
                                     <div className="text-sm">💳 Quẹt thẻ (Cổng F)</div>
                                     <div className="text-[11px] text-gray-500">Trạng thái Chờ tiền về</div>
+                                </div>
+                            </label>
+
+                            <label
+                                className={`border rounded-xl p-3.5 flex items-center gap-3 cursor-pointer transition ${
+                                    data.payment_method === 'unpaid'
+                                        ? 'border-amber-500 bg-amber-50 text-amber-950 font-medium ring-2 ring-amber-500/20'
+                                        : 'border-gray-200 hover:bg-gray-50'
+                                }`}
+                            >
+                                <input
+                                    type="radio"
+                                    name="payment_method"
+                                    value="unpaid"
+                                    checked={data.payment_method === 'unpaid'}
+                                    onChange={(e) => setData('payment_method', e.target.value)}
+                                    className="text-amber-600 focus:ring-amber-500"
+                                />
+                                <div>
+                                    <div className="text-sm">⏳ Chưa thanh toán</div>
+                                    <div className="text-[11px] text-gray-500">Đơn hàng công nợ / chưa thu tiền</div>
                                 </div>
                             </label>
                         </div>
