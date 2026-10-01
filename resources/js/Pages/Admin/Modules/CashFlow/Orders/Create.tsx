@@ -163,8 +163,18 @@ export default function CreateOrder({
         setData('items', updated);
     };
 
+    const [itemError, setItemError] = useState<string | null>(null);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        setItemError(null);
+
+        const invalidItemIndex = items.findIndex((it) => !it.unit_price || it.unit_price <= 0);
+        if (invalidItemIndex !== -1) {
+            setItemError(`Đơn giá của sản phẩm #${invalidItemIndex + 1} phải lớn hơn 0.`);
+            return;
+        }
+
         data.items = items;
         post(route('admin.cashflow.orders.store'));
     };
@@ -338,6 +348,17 @@ export default function CreateOrder({
                             </button>
                         </div>
 
+                        {itemError && (
+                            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center gap-2">
+                                <span>⚠️</span> {itemError}
+                            </div>
+                        )}
+                        {(errors as Record<string, string>)['items'] && (
+                            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center gap-2">
+                                <span>⚠️</span> {(errors as Record<string, string>)['items']}
+                            </div>
+                        )}
+
                         <div className="space-y-3">
                             {items.map((item, idx) => (
                                 <div
@@ -386,15 +407,27 @@ export default function CreateOrder({
                                     </div>
 
                                     <div className="md:col-span-2">
-                                        <label className="block text-xs text-gray-600 mb-1">Đơn giá (đ)</label>
+                                        <label className="block text-xs text-gray-600 mb-1">
+                                            Đơn giá (đ) <span className="text-red-500">*</span>
+                                        </label>
                                         <input
                                             type="number"
-                                            min="0"
-                                            value={item.unit_price}
+                                            min="1"
+                                            value={item.unit_price === 0 ? '' : item.unit_price}
                                             onChange={(e) => handleItemChange(idx, 'unit_price', parseFloat(e.target.value) || 0)}
-                                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-1.5 shadow-sm"
+                                            placeholder="> 0"
+                                            className={`w-full rounded-md text-xs px-2.5 py-1.5 shadow-sm ${
+                                                (errors as Record<string, string>)[`items.${idx}.unit_price`]
+                                                    ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                                                    : 'border-gray-300'
+                                            }`}
                                             required
                                         />
+                                        {(errors as Record<string, string>)[`items.${idx}.unit_price`] && (
+                                            <p className="text-xs text-red-600 mt-1">
+                                                {(errors as Record<string, string>)[`items.${idx}.unit_price`]}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div className="md:col-span-1 flex justify-end">

@@ -439,6 +439,53 @@ class CashFlowTest extends TestCase
         ]);
     }
 
+    public function test_order_creation_fails_when_product_price_is_zero_or_negative(): void
+    {
+        $responseZero = $this->actingAs($this->manager)->post(route('admin.cashflow.orders.store'), [
+            'branch_id' => $this->branchA->id,
+            'consultant_id' => $this->seller->id,
+            'customer_name' => 'Lê Văn C',
+            'customer_phone' => '0901234567',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'items' => [
+                ['product_name' => 'Chuỗi Ngọc', 'brand_id' => $this->brandMgems->id, 'quantity' => 1, 'unit_price' => 0],
+            ],
+            'payment_method' => 'cash',
+        ]);
+
+        $responseZero->assertSessionHasErrors(['items.0.unit_price']);
+
+        $responseNegative = $this->actingAs($this->manager)->post(route('admin.cashflow.orders.store'), [
+            'branch_id' => $this->branchA->id,
+            'consultant_id' => $this->seller->id,
+            'customer_name' => 'Lê Văn C',
+            'customer_phone' => '0901234567',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'items' => [
+                ['product_name' => 'Chuỗi Ngọc', 'brand_id' => $this->brandMgems->id, 'quantity' => 1, 'unit_price' => -50000],
+            ],
+            'payment_method' => 'cash',
+        ]);
+
+        $responseNegative->assertSessionHasErrors(['items.0.unit_price']);
+    }
+
+    public function test_calculation_service_rejects_zero_or_negative_unit_price(): void
+    {
+        $calcService = app(OrderCalculationService::class);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unit price for item 1 must be greater than 0');
+
+        $calcService->calculate([
+            ['product_name' => 'Test', 'brand_id' => 1, 'quantity' => 1, 'unit_price' => 0],
+        ]);
+    }
+
     public function test_order_create_screen_provides_consultants(): void
     {
         $response = $this->actingAs($this->manager)->get(route('admin.cashflow.orders.create'));

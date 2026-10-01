@@ -54,8 +54,8 @@ class OrderCalculationService
             if ($qty <= 0) {
                 throw new InvalidArgumentException("Quantity for item " . ($index + 1) . " must be greater than 0");
             }
-            if ($unitPrice < 0) {
-                throw new InvalidArgumentException("Unit price for item " . ($index + 1) . " cannot be negative");
+            if ($unitPrice <= 0) {
+                throw new InvalidArgumentException("Unit price for item " . ($index + 1) . " must be greater than 0");
             }
 
             $lineGross = (float) ($qty * $unitPrice);

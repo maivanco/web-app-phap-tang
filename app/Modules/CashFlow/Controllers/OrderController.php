@@ -97,10 +97,12 @@ class OrderController extends Controller
             'items.*.product_name' => 'required|string|max:255',
             'items.*.brand_id' => 'required|exists:brands,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.unit_price' => 'required|numeric|gt:0',
             'payment_method' => 'required|in:cash,bank_transfer,card_swipe,unpaid',
             'payment_account_id' => 'nullable|required_if:payment_method,bank_transfer|exists:financial_accounts,id',
             'card_swipe_date' => 'nullable|required_if:payment_method,card_swipe|date',
+        ], [
+            'items.*.unit_price.gt' => 'Đơn giá sản phẩm phải lớn hơn 0.',
         ]);
 
         // Remember branch in session
@@ -166,7 +168,9 @@ class OrderController extends Controller
             'items.*.product_name' => 'required|string|max:255',
             'items.*.brand_id' => 'required|exists:brands,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.unit_price' => 'required|numeric|gt:0',
+        ], [
+            'items.*.unit_price.gt' => 'Đơn giá sản phẩm phải lớn hơn 0.',
         ]);
 
         $reason = $validated['reason'];

@@ -344,8 +344,8 @@ class TelegramBotService
 
             case 10: // Unit price
                 $price = (float) trim($input);
-                if ($price < 0) {
-                    $this->sendMessage($chatId, "⚠️ Đơn giá không được âm. Vui lòng nhập lại:");
+                if ($price <= 0) {
+                    $this->sendMessage($chatId, "⚠️ Đơn giá phải lớn hơn 0. Vui lòng nhập lại:");
                     return;
                 }
                 $draft['current_item']['unit_price'] = $price;
