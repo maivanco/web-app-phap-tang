@@ -8,12 +8,18 @@ services:
             args:
                 WWWGROUP: '${WWWGROUP:-1000}'
         image: phap-tang-app:prod
+        container_name: phap-tang-prod-app
         restart: unless-stopped
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
         ports:
-            - '${APP_PORT:-80}:80'
+            # Port 80 is often occupied on host systems, default to 8090 (customizable via APP_PORT in .env)
+            - '${APP_PORT:-8091}:80'
         environment:
             WWWUSER: '${WWWUSER:-1000}'
-            LARAVEL_SAIL: 0
+            LARAVEL_SAIL: 1
+            XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
+            IGNITION_LOCAL_SITES_PATH: '${PWD}'
             APP_ENV: '${APP_ENV:-production}'
             APP_DEBUG: '${APP_DEBUG:-false}'
             DB_HOST: '${DB_HOST:-mysql}'
@@ -21,29 +27,30 @@ services:
         volumes:
             - '.:/var/www/html'
         networks:
-            - app-network
+            - sail-prod
         depends_on:
             mysql:
                 condition: service_healthy
 
     mysql:
         image: 'mysql/mysql-server:8.0'
+        container_name: phap-tang-prod-mysql
         restart: unless-stopped
-        # Port 3306 is not exposed to the host/internet for security;
-        # Services communicate internally over 'app-network' using hostname 'mysql:3306'.
-        # If direct local tunnel access is needed, bind only to localhost:
-        # ports:
-        #     - '127.0.0.1:${FORWARD_DB_PORT:-3306}:3306'
+        ports:
+            # Default host port mapped to 3307 to avoid conflicts with host MySQL instances (customizable via FORWARD_DB_PORT)
+            - '${FORWARD_DB_PORT:-3307}:3306'
         environment:
             MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
             MYSQL_ROOT_HOST: '%'
-            MYSQL_DATABASE: '${DB_DATABASE}'
-            MYSQL_USER: '${DB_USERNAME}'
+            MYSQL_DATABASE: '${DB_DATABASE:-laravel}'
+            MYSQL_USER: '${DB_USERNAME:-sail}'
             MYSQL_PASSWORD: '${DB_PASSWORD}'
+            MYSQL_ALLOW_EMPTY_PASSWORD: 1
         volumes:
-            - 'prod-mysql:/var/lib/mysql'
+            - 'sail-mysql-prod:/var/lib/mysql'
+            - './vendor/laravel/sail/database/mysql/create-testing-database.sh:/docker-entrypoint-initdb.d/10-create-testing-database.sh'
         networks:
-            - app-network
+            - sail-prod
         healthcheck:
             test:
                 - CMD
@@ -57,12 +64,15 @@ services:
     # Optional: Queue Worker container for handling background jobs
     # queue:
     #     image: phap-tang-app:prod
+    #     container_name: phap-tang-prod-queue
     #     restart: unless-stopped
+    #     extra_hosts:
+    #         - 'host.docker.internal:host-gateway'
     #     command: php artisan queue:work --sleep=3 --tries=3 --timeout=90
     #     volumes:
     #         - '.:/var/www/html'
     #     networks:
-    #         - app-network
+    #         - sail-prod
     #     depends_on:
     #         mysql:
     #             condition: service_healthy
@@ -70,20 +80,23 @@ services:
     # Optional: Scheduler container for running scheduled tasks
     # scheduler:
     #     image: phap-tang-app:prod
+    #     container_name: phap-tang-prod-scheduler
     #     restart: unless-stopped
+    #     extra_hosts:
+    #         - 'host.docker.internal:host-gateway'
     #     command: php artisan schedule:work
     #     volumes:
     #         - '.:/var/www/html'
     #     networks:
-    #         - app-network
+    #         - sail-prod
     #     depends_on:
     #         mysql:
     #             condition: service_healthy
 
 networks:
-    app-network:
+    sail-prod:
         driver: bridge
 
 volumes:
-    prod-mysql:
+    sail-mysql-prod:
         driver: local
