@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { PageProps } from '@/types';
 import Modal from '@/Components/Modal';
 
@@ -64,6 +64,7 @@ interface OrdersIndexProps extends PageProps {
 
 export default function OrdersIndex({ auth, orders, filters, branches }: OrdersIndexProps) {
     const isManager = (auth.user as any).role === 'manager' || (auth.user as any).role === 'admin';
+    const { flash } = usePage<PageProps<{ flash?: { success?: string; error?: string } }>>().props;
 
     const [search, setSearch] = useState(filters.search || '');
     const [branchId, setBranchId] = useState(filters.branch_id || '');
@@ -75,6 +76,20 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
     const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
     const [cancelReason, setCancelReason] = useState('');
     const [isCancelling, setIsCancelling] = useState(false);
+    const [syncingOrderId, setSyncingOrderId] = useState<number | null>(null);
+
+    const handleSyncSheets = (orderId: number) => {
+        if (syncingOrderId) return;
+        setSyncingOrderId(orderId);
+        router.post(
+            route('admin.cashflow.orders.sync-sheets', orderId),
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setSyncingOrderId(null),
+            }
+        );
+    };
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -137,6 +152,24 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
             <Head title="Danh sách đơn hàng - Pháp Tạng" />
 
             <div className="py-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
+                {/* Flash Messages */}
+                {flash?.success && (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2">
+                            <span>✅</span>
+                            <span>{flash.success}</span>
+                        </div>
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2">
+                            <span>❌</span>
+                            <span>{flash.error}</span>
+                        </div>
+                    </div>
+                )}
+
                 {/* Search & Filters */}
                 <form
                     onSubmit={handleSearch}
@@ -285,6 +318,16 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                                             )}
                                         </td>
                                         <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSyncSheets(order.id)}
+                                                disabled={syncingOrderId === order.id}
+                                                className="text-emerald-600 hover:text-emerald-900 font-medium px-1.5 py-1 text-xs disabled:opacity-50 cursor-pointer"
+                                                title="Đồng bộ đơn này sang Google Sheets"
+                                            >
+                                                {syncingOrderId === order.id ? '⏳' : '📊'} Sheets
+                                            </button>
+
                                             <Link
                                                 href={route('admin.cashflow.orders.show', order.id)}
                                                 className="text-indigo-600 hover:text-indigo-900 font-medium px-1.5 py-1"

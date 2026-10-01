@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { PageProps } from '@/types';
 import Modal from '@/Components/Modal';
 
@@ -48,6 +48,7 @@ interface ExpensesIndexProps extends PageProps {
 
 export default function ExpensesIndex({ auth, expenses, filters, branches }: ExpensesIndexProps) {
     const isManager = (auth.user as any).role === 'manager' || (auth.user as any).role === 'admin';
+    const { flash } = usePage<PageProps<{ flash?: { success?: string; error?: string } }>>().props;
 
     const [search, setSearch] = useState(filters.search || '');
     const [branchId, setBranchId] = useState(filters.branch_id || '');
@@ -58,6 +59,20 @@ export default function ExpensesIndex({ auth, expenses, filters, branches }: Exp
     const [cancellingExpense, setCancellingExpense] = useState<Expense | null>(null);
     const [cancelReason, setCancelReason] = useState('');
     const [isCancelling, setIsCancelling] = useState(false);
+    const [syncingExpenseId, setSyncingExpenseId] = useState<number | null>(null);
+
+    const handleSyncSheets = (expenseId: number) => {
+        if (syncingExpenseId) return;
+        setSyncingExpenseId(expenseId);
+        router.post(
+            route('admin.cashflow.expenses.sync-sheets', expenseId),
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setSyncingExpenseId(null),
+            }
+        );
+    };
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -120,6 +135,24 @@ export default function ExpensesIndex({ auth, expenses, filters, branches }: Exp
             <Head title="Sổ chi tiêu - Pháp Tạng" />
 
             <div className="py-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
+                {/* Flash Messages */}
+                {flash?.success && (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2">
+                            <span>✅</span>
+                            <span>{flash.success}</span>
+                        </div>
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2">
+                            <span>❌</span>
+                            <span>{flash.error}</span>
+                        </div>
+                    </div>
+                )}
+
                 {/* Search & Filters */}
                 <form
                     onSubmit={handleSearch}
@@ -257,7 +290,17 @@ export default function ExpensesIndex({ auth, expenses, filters, branches }: Exp
                                                 </span>
                                             )}
                                         </td>
-                                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                                        <td className="px-4 py-3 text-right whitespace-nowrap space-x-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSyncSheets(expense.id)}
+                                                disabled={syncingExpenseId === expense.id}
+                                                className="text-emerald-600 hover:text-emerald-900 font-medium px-2 py-1 text-xs disabled:opacity-50 cursor-pointer"
+                                                title="Đồng bộ khoản chi này sang Google Sheets"
+                                            >
+                                                {syncingExpenseId === expense.id ? '⏳' : '📊'} Sheets
+                                            </button>
+
                                             {isManager && expense.status === 'completed' && (
                                                 <button
                                                     onClick={() => setCancellingExpense(expense)}

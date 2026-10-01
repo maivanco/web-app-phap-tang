@@ -88,10 +88,6 @@ class ExpenseController extends Controller
 
         $expense = $this->expenseService->createExpense($validated);
 
-        try {
-            $this->sheetsSyncService->sync('Data_Chi', [$this->sheetsSyncService->formatExpenseRow($expense)]);
-        } catch (\Throwable $e) {}
-
         return redirect()->route('admin.cashflow.expenses.index')
             ->with('success', "Đơn chi tiêu {$expense->expense_code} đã được lưu thành công!");
     }
@@ -131,5 +127,22 @@ class ExpenseController extends Controller
 
         return redirect()->route('admin.cashflow.expenses.index')
             ->with('success', "Khoản chi {$expense->expense_code} đã được hủy bỏ thành công!");
+    }
+
+    public function syncSheets(Expense $expense): RedirectResponse
+    {
+        $this->authorize('view', $expense);
+
+        if (!$this->sheetsSyncService->isConfigured()) {
+            return back()->with('error', 'Chưa cấu hình Google Sheets Webhook URL trên hệ thống (vui lòng kiểm tra biến môi trường .env).');
+        }
+
+        $success = $this->sheetsSyncService->syncExpense($expense);
+
+        if ($success) {
+            return back()->with('success', "Đã đồng bộ khoản chi {$expense->expense_code} lên Google Sheets thành công!");
+        }
+
+        return back()->with('error', "Đồng bộ khoản chi {$expense->expense_code} lên Google Sheets thất bại. Vui lòng kiểm tra Google Apps Script Webhook.");
     }
 }

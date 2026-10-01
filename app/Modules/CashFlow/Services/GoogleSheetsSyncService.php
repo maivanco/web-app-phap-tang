@@ -135,13 +135,78 @@ class GoogleSheetsSyncService
     }
 
     /**
+     * Check if Google Sheets webhook and spreadsheet ID are configured.
+     */
+    public function isConfigured(): bool
+    {
+        return !empty($this->webhookUrl) && !empty($this->spreadsheetId);
+    }
+
+    /**
+     * Sync entire Order (Don_Hang, Chi_Tiet_Don, and Thanh_Toan).
+     */
+    public function syncOrder(Order $order, string $action = 'append'): bool
+    {
+        if (!$this->isConfigured()) {
+            return false;
+        }
+
+        $order->loadMissing([
+            'branch',
+            'creator',
+            'customerSource',
+            'consultant',
+            'items.brand',
+            'payment.account',
+            'payment.settlementAccount',
+            'payment.settledByUser',
+        ]);
+
+        if ($order->payment && !$order->payment->relationLoaded('order')) {
+            $order->payment->setRelation('order', $order);
+        }
+
+        $success = $this->sync('Don_Hang', [$this->formatOrderRow($order)], $action);
+
+        if ($order->items && $order->items->isNotEmpty()) {
+            $itemRows = [];
+            foreach ($order->items as $item) {
+                $itemRows[] = $this->formatOrderItemRow($item, $order);
+            }
+            $itemsSuccess = $this->sync('Chi_Tiet_Don', $itemRows, $action);
+            $success = $success && $itemsSuccess;
+        }
+
+        if ($order->payment) {
+            $paymentSuccess = $this->sync('Thanh_Toan', [$this->formatPaymentRow($order->payment)], $action);
+            $success = $success && $paymentSuccess;
+        }
+
+        return $success;
+    }
+
+    /**
+     * Sync Expense (Data_Chi).
+     */
+    public function syncExpense(Expense $expense, string $action = 'append'): bool
+    {
+        if (!$this->isConfigured()) {
+            return false;
+        }
+
+        $expense->loadMissing(['branch', 'account', 'creator']);
+
+        return $this->sync('Data_Chi', [$this->formatExpenseRow($expense)], $action);
+    }
+
+    /**
      * Sync data to Google Sheets via Webhook (Google Apps Script Web App).
      */
     public function sync(string $sheetName, array $rows, string $action = 'append'): bool
     {
         if (!$this->webhookUrl) {
             Log::info("Google Sheets Webhook URL not configured. Sync skipped for sheet: {$sheetName}");
-            return true;
+            return false;
         }
 
         try {
@@ -159,3 +224,4 @@ class GoogleSheetsSyncService
         }
     }
 }
+

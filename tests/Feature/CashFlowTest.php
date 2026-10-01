@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\CashFlow\Models\Branch;
 use App\Modules\CashFlow\Models\Brand;
 use App\Modules\CashFlow\Models\CustomerSource;
+use App\Modules\CashFlow\Models\Expense;
 use App\Modules\CashFlow\Models\FinancialAccount;
 use App\Modules\CashFlow\Models\Order;
 use App\Modules\CashFlow\Models\OrderPayment;
@@ -483,5 +484,60 @@ class CashFlowTest extends TestCase
         $this->assertEquals($this->seller->id, $session->draft_data['consultant_id']);
         $this->assertEquals($this->seller->name, $session->draft_data['consultant_name']);
     }
+
+    public function test_manual_sync_order_to_google_sheets(): void
+    {
+        $mockSheets = \Mockery::mock(\App\Modules\CashFlow\Services\GoogleSheetsSyncService::class);
+        $mockSheets->shouldReceive('isConfigured')->andReturn(true);
+        $mockSheets->shouldReceive('syncOrder')->once()->andReturn(true);
+
+        $this->app->instance(\App\Modules\CashFlow\Services\GoogleSheetsSyncService::class, $mockSheets);
+
+        $order = Order::create([
+            'order_code' => 'ORD-SYNC-TEST-001',
+            'sale_date' => now()->toDateString(),
+            'branch_id' => $this->branchA->id,
+            'customer_name' => 'Sync Tester',
+            'customer_phone' => '0912345678',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'gross_amount' => 100000,
+            'net_revenue' => 100000,
+            'status' => 'completed',
+        ]);
+
+        $response = $this->actingAs($this->manager)->post(route('admin.cashflow.orders.sync-sheets', $order->id));
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+    }
+
+    public function test_manual_sync_expense_to_google_sheets(): void
+    {
+        $mockSheets = \Mockery::mock(\App\Modules\CashFlow\Services\GoogleSheetsSyncService::class);
+        $mockSheets->shouldReceive('isConfigured')->andReturn(true);
+        $mockSheets->shouldReceive('syncExpense')->once()->andReturn(true);
+
+        $this->app->instance(\App\Modules\CashFlow\Services\GoogleSheetsSyncService::class, $mockSheets);
+
+        $expense = Expense::create([
+            'expense_code' => 'EXP-SYNC-TEST-001',
+            'expense_date' => now()->toDateString(),
+            'branch_id' => $this->branchA->id,
+            'spender_name' => 'Tester',
+            'content' => 'Test Expense Sync',
+            'quantity' => 1,
+            'unit_price' => 50000,
+            'total_amount' => 50000,
+            'method' => 'cash',
+            'account_id' => $this->cashA->id,
+            'status' => 'completed',
+        ]);
+
+        $response = $this->actingAs($this->manager)->post(route('admin.cashflow.expenses.sync-sheets', $expense->id));
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+    }
 }
+
 

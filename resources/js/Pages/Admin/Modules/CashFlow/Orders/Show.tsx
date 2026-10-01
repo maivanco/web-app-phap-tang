@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { PageProps } from '@/types';
 
 interface OrderItem {
@@ -68,6 +68,22 @@ interface OrderDetailProps extends PageProps {
 }
 
 export default function OrderShow({ auth, order }: OrderDetailProps) {
+    const [isSyncing, setIsSyncing] = useState(false);
+    const { flash } = usePage<PageProps<{ flash?: { success?: string; error?: string } }>>().props;
+
+    const handleSyncGoogleSheets = () => {
+        if (isSyncing) return;
+        setIsSyncing(true);
+        router.post(
+            route('admin.cashflow.orders.sync-sheets', order.id),
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setIsSyncing(false),
+            }
+        );
+    };
+
     const formatCurrency = (val: number) => {
         return new Intl.NumberFormat('vi-VN').format(Math.round(val)) + ' đ';
     };
@@ -97,18 +113,47 @@ export default function OrderShow({ auth, order }: OrderDetailProps) {
                         </p>
                     </div>
 
-                    <Link
-                        href={route('admin.cashflow.orders.index')}
-                        className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3.5 py-1.5 rounded-lg transition"
-                    >
-                        ← Quay lại danh sách
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={handleSyncGoogleSheets}
+                            disabled={isSyncing}
+                            className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                            title="Đồng bộ đơn hàng này sang Google Sheets"
+                        >
+                            <span>{isSyncing ? '⏳' : '📊'}</span>
+                            <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ Sheets'}</span>
+                        </button>
+                        <Link
+                            href={route('admin.cashflow.orders.index')}
+                            className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3.5 py-1.5 rounded-lg transition"
+                        >
+                            ← Quay lại danh sách
+                        </Link>
+                    </div>
                 </div>
             }
         >
             <Head title={`Đơn hàng ${order.order_code}`} />
 
             <div className="py-6 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+                {/* Flash Messages */}
+                {flash?.success && (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2">
+                            <span>✅</span>
+                            <span>{flash.success}</span>
+                        </div>
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2">
+                            <span>❌</span>
+                            <span>{flash.error}</span>
+                        </div>
+                    </div>
+                )}
                 {/* 1. Header Information Grid */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
                     <div>

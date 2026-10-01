@@ -191,4 +191,21 @@ class OrderController extends Controller
         return redirect()->route('admin.cashflow.orders.show', $order->id)
             ->with('success', "Đơn hàng {$order->order_code} đã được hủy bỏ có lý do lưu vết!");
     }
+
+    public function syncSheets(Order $order): RedirectResponse
+    {
+        $this->authorize('view', $order);
+
+        if (!$this->sheetsSyncService->isConfigured()) {
+            return back()->with('error', 'Chưa cấu hình Google Sheets Webhook URL trên hệ thống (vui lòng kiểm tra biến môi trường .env).');
+        }
+
+        $success = $this->sheetsSyncService->syncOrder($order);
+
+        if ($success) {
+            return back()->with('success', "Đã đồng bộ đơn hàng {$order->order_code} lên Google Sheets thành công!");
+        }
+
+        return back()->with('error', "Đồng bộ đơn hàng {$order->order_code} lên Google Sheets thất bại. Vui lòng kiểm tra Google Apps Script Webhook.");
+    }
 }

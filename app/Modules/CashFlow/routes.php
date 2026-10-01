@@ -31,6 +31,7 @@ Route::middleware(['auth'])->prefix('admin/cashflow')->name('admin.cashflow.')->
     Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
     Route::put('/orders/{order}', [OrderController::class, 'update'])->name('orders.update');
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel'])->name('orders.cancel');
+    Route::post('/orders/{order}/sync-sheets', [OrderController::class, 'syncSheets'])->name('orders.sync-sheets');
 
     // Expenses
     Route::get('/expenses', [ExpenseController::class, 'index'])->name('expenses.index');
@@ -38,6 +39,7 @@ Route::middleware(['auth'])->prefix('admin/cashflow')->name('admin.cashflow.')->
     Route::post('/expenses', [ExpenseController::class, 'store'])->name('expenses.store');
     Route::put('/expenses/{expense}', [ExpenseController::class, 'update'])->name('expenses.update');
     Route::post('/expenses/{expense}/cancel', [ExpenseController::class, 'cancel'])->name('expenses.cancel');
+    Route::post('/expenses/{expense}/sync-sheets', [ExpenseController::class, 'syncSheets'])->name('expenses.sync-sheets');
 
     // Card Reconciliation / Settlements
     Route::get('/card-settlements', [CardSettlementController::class, 'index'])->name('card-settlements.index');

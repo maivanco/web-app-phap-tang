@@ -99,7 +99,7 @@ class ExpenseService
             ]);
 
             try {
-                $this->sheetsSyncService->sync('Data_Chi', [$this->sheetsSyncService->formatExpenseRow($expense->load(['branch', 'account', 'creator']))]);
+                $this->sheetsSyncService->syncExpense($expense);
             } catch (\Throwable $e) {}
 
             return $expense;
