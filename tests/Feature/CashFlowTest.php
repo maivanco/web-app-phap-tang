@@ -311,6 +311,14 @@ class CashFlowTest extends TestCase
             'payment_method' => 'cash',
         ]);
 
+        // Seller attempts to access edit page -> forbidden
+        $response = $this->actingAs($this->seller)->get(route('admin.cashflow.orders.edit', $order->id));
+        $response->assertStatus(403);
+
+        // Manager accesses edit page -> success (200)
+        $response = $this->actingAs($this->manager)->get(route('admin.cashflow.orders.edit', $order->id));
+        $response->assertStatus(200);
+
         // Seller attempts to update -> forbidden
         $response = $this->actingAs($this->seller)->put(route('admin.cashflow.orders.update', $order->id), [
             'reason' => 'Thay đổi sản phẩm',

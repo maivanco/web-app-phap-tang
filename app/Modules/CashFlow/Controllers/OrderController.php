@@ -150,6 +150,28 @@ class OrderController extends Controller
         ]);
     }
 
+    public function edit(Order $order): Response
+    {
+        $this->authorize('update', $order);
+
+        $order->load([
+            'branch',
+            'customerSource',
+            'items.brand',
+            'payment.account',
+            'consultant',
+            'creator',
+        ]);
+
+        return Inertia::render('Admin/Modules/CashFlow/Orders/Edit', [
+            'order' => $order,
+            'branches' => Branch::where('status', 'active')->orderBy('code')->get(),
+            'customer_sources' => CustomerSource::where('status', 'active')->orderBy('code')->get(),
+            'brands' => Brand::where('status', 'active')->orderBy('code')->get(),
+            'consultants' => User::select('id', 'name', 'email', 'role')->orderBy('name')->get(),
+        ]);
+    }
+
     public function update(Request $request, Order $order): RedirectResponse
     {
         $this->authorize('update', $order);

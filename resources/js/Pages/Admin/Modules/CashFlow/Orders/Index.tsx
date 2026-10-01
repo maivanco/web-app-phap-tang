@@ -340,6 +340,15 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                                             </Link>
 
                                             {isManager && order.status === 'completed' && (
+                                                <Link
+                                                    href={route('admin.cashflow.orders.edit', order.id)}
+                                                    className="text-amber-600 hover:text-amber-900 font-medium px-1.5 py-1"
+                                                >
+                                                    Sửa
+                                                </Link>
+                                            )}
+
+                                            {isManager && order.status === 'completed' && (
                                                 <button
                                                     onClick={() => setCancellingOrder(order)}
                                                     className="text-red-600 hover:text-red-900 font-medium px-1.5 py-1"

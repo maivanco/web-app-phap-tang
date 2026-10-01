@@ -114,6 +114,14 @@ export default function OrderShow({ auth, order }: OrderDetailProps) {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {(auth.user?.role === 'manager' || auth.user?.role === 'admin') && order.status === 'completed' && (
+                            <Link
+                                href={route('admin.cashflow.orders.edit', order.id)}
+                                className="text-xs bg-amber-500 hover:bg-amber-600 text-white font-semibold px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm"
+                            >
+                                <span>✏️</span> Sửa đơn hàng
+                            </Link>
+                        )}
                         <button
                             type="button"
                             onClick={handleSyncGoogleSheets}
