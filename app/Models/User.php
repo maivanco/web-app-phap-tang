@@ -22,11 +22,22 @@ class User extends Authenticatable
         'email',
         'role', // admin, manager, seller
         'telegram_user_id',
+        'financial_account_id',
         'password',
         'google_id',
         'github_id',
         'avatar',
     ];
+
+    public function financialAccount(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Modules\CashFlow\Models\FinancialAccount::class, 'financial_account_id');
+    }
+
+    public function dailyBalances(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Modules\CashFlow\Models\DailyStaffBalance::class, 'user_id');
+    }
 
     public function isAdmin(): bool
     {

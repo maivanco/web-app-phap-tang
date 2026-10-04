@@ -4,6 +4,7 @@ namespace App\Modules\CashFlow\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\CashFlow\Models\FinancialAccount;
 use App\Modules\CashFlow\Models\TelegramAuthorizedUser;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ class UserController extends Controller
     {
         $this->authorize('viewAny', User::class);
 
-        $query = User::query()->orderByDesc('id');
+        $query = User::with('financialAccount')->orderByDesc('id');
 
         if ($request->filled('search')) {
             $search = trim($request->input('search'));
@@ -38,6 +39,11 @@ class UserController extends Controller
 
         $users = $query->paginate(15)->withQueryString();
 
+        $accounts = FinancialAccount::where('status', 'active')
+            ->where('type', 'bank')
+            ->orderBy('name')
+            ->get(['id', 'code', 'letter_code', 'name']);
+
         $stats = [
             'total' => User::count(),
             'admins' => User::where('role', 'admin')->count(),
@@ -48,6 +54,7 @@ class UserController extends Controller
 
         return Inertia::render('Admin/Modules/CashFlow/Users/Index', [
             'users' => $users,
+            'accounts' => $accounts,
             'stats' => $stats,
             'filters' => [
                 'search' => $request->input('search', ''),
@@ -68,6 +75,7 @@ class UserController extends Controller
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'role' => ['required', 'string', 'in:admin,manager,seller'],
             'telegram_user_id' => ['nullable', 'numeric', 'unique:users,telegram_user_id'],
+            'financial_account_id' => ['nullable', 'exists:financial_accounts,id'],
             'password' => ['required', 'string', 'min:6'],
         ]);
 
@@ -76,6 +84,7 @@ class UserController extends Controller
             'email' => $validated['email'],
             'role' => $validated['role'],
             'telegram_user_id' => $validated['telegram_user_id'] ?? null,
+            'financial_account_id' => $validated['financial_account_id'] ?? null,
             'password' => Hash::make($validated['password']),
         ]);
 
@@ -107,6 +116,7 @@ class UserController extends Controller
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['required', 'string', 'in:admin,manager,seller'],
             'telegram_user_id' => ['nullable', 'numeric', Rule::unique('users', 'telegram_user_id')->ignore($user->id)],
+            'financial_account_id' => ['nullable', 'exists:financial_accounts,id'],
             'password' => ['nullable', 'string', 'min:6'],
         ]);
 
@@ -116,6 +126,7 @@ class UserController extends Controller
         $user->email = $validated['email'];
         $user->role = $validated['role'];
         $user->telegram_user_id = $validated['telegram_user_id'] ?? null;
+        $user->financial_account_id = $validated['financial_account_id'] ?? null;
 
         if (!empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);

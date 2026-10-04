@@ -60,6 +60,11 @@ export default function Sidebar() {
                     icon: '🔄',
                     href: admin_url('cashflow/transfers'),
                 },
+                {
+                    label: 'Quản lý số dư',
+                    icon: '⚖️',
+                    href: admin_url('cashflow/balances'),
+                },
             ],
         },
         ...(isManagerOrAdmin

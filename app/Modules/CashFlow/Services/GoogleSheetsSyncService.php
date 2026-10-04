@@ -2,6 +2,7 @@
 
 namespace App\Modules\CashFlow\Services;
 
+use App\Modules\CashFlow\Models\DailyStaffBalance;
 use App\Modules\CashFlow\Models\Expense;
 use App\Modules\CashFlow\Models\InternalTransfer;
 use App\Modules\CashFlow\Models\Order;
@@ -197,6 +198,77 @@ class GoogleSheetsSyncService
         $expense->loadMissing(['branch', 'account', 'creator']);
 
         return $this->sync('Data_Chi', [$this->formatExpenseRow($expense)], $action);
+    }
+
+    /**
+     * Format DailyStaffBalance for Balance sheet.
+     */
+    public function formatBalanceRow(DailyStaffBalance $balance): array
+    {
+        $balance->loadMissing(['user', 'account']);
+
+        $orderInflow = (float) OrderPayment::where('account_id', $balance->account_id)
+            ->where('status', 'completed')
+            ->whereDate('payment_date', $balance->date)
+            ->sum('amount');
+
+        $cardInflow = (float) OrderPayment::where('card_settlement_account_id', $balance->account_id)
+            ->where('status', 'reconciled')
+            ->whereDate('card_settlement_date', $balance->date)
+            ->sum('actual_received_amount');
+
+        $transfersIn = (float) InternalTransfer::where('to_account_id', $balance->account_id)
+            ->whereDate('transfer_date', $balance->date)
+            ->sum('amount');
+
+        $transfersOut = (float) InternalTransfer::where('from_account_id', $balance->account_id)
+            ->whereDate('transfer_date', $balance->date)
+            ->sum('amount');
+
+        $expensesOut = (float) Expense::where('account_id', $balance->account_id)
+            ->where('status', 'completed')
+            ->whereDate('expense_date', $balance->date)
+            ->sum('total_amount');
+
+        $totalIn = $orderInflow + $cardInflow + $transfersIn;
+        $totalOut = $transfersOut + $expensesOut;
+        $expectedBalance = (float) $balance->opening_balance + $totalIn - $totalOut;
+        $discrepancy = $balance->closing_balance !== null ? ((float) $balance->closing_balance - $expectedBalance) : '';
+
+        return [
+            'balance_id' => "BAL-{$balance->date->format('Ymd')}-{$balance->user_id}",
+            'date' => $balance->date->format('Y-m-d'),
+            'staff_name' => $balance->user?->name ?? '',
+            'staff_email' => $balance->user?->email ?? '',
+            'account_code' => $balance->account?->code ?? '',
+            'account_letter' => $balance->account?->letter_code ?? '',
+            'account_name' => $balance->account?->name ?? '',
+            'opening_balance' => (float) $balance->opening_balance,
+            'opened_at' => $balance->opened_at?->toIso8601String() ?? '',
+            'closing_balance' => $balance->closing_balance !== null ? (float) $balance->closing_balance : '',
+            'closed_at' => $balance->closed_at?->toIso8601String() ?? '',
+            'total_in' => $totalIn,
+            'total_out' => $totalOut,
+            'expected_balance' => $expectedBalance,
+            'discrepancy' => $discrepancy !== '' ? (float) $discrepancy : '',
+            'status' => $balance->status,
+            'note' => $balance->note ?? '',
+            'updated_at' => $balance->updated_at?->toIso8601String() ?? '',
+        ];
+    }
+
+    /**
+     * Sync DailyStaffBalance (Balance sheet).
+     */
+    public function syncBalance(DailyStaffBalance $balance, string $action = 'append'): bool
+    {
+        if (!$this->isConfigured()) {
+            return false;
+        }
+
+        $balance->loadMissing(['user', 'account']);
+
+        return $this->sync('Balance', [$this->formatBalanceRow($balance)], $action);
     }
 
     /**

@@ -49,4 +49,14 @@ class FinancialAccount extends Model
     {
         return $this->hasMany(InternalTransfer::class, 'to_account_id');
     }
+
+    public function users(): HasMany
+    {
+        return $this->hasMany(\App\Models\User::class, 'financial_account_id');
+    }
+
+    public function dailyBalances(): HasMany
+    {
+        return $this->hasMany(DailyStaffBalance::class, 'account_id');
+    }
 }

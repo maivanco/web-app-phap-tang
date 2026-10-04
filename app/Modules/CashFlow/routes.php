@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\CashFlow\Controllers\BalanceController;
 use App\Modules\CashFlow\Controllers\CardSettlementController;
 use App\Modules\CashFlow\Controllers\DashboardController;
 use App\Modules\CashFlow\Controllers\ExpenseController;
@@ -49,4 +50,10 @@ Route::middleware(['auth'])->prefix('admin/cashflow')->name('admin.cashflow.')->
     // Internal Transfers & Adjustments
     Route::get('/transfers', [InternalTransferController::class, 'index'])->name('transfers.index');
     Route::post('/transfers', [InternalTransferController::class, 'store'])->name('transfers.store');
+
+    // Daily Staff Balance Management
+    Route::get('/balances', [BalanceController::class, 'index'])->name('balances.index');
+    Route::post('/balances', [BalanceController::class, 'store'])->name('balances.store');
+    Route::put('/balances/{balance}', [BalanceController::class, 'update'])->name('balances.update');
+    Route::post('/balances/{balance}/sync-sheets', [BalanceController::class, 'syncSheets'])->name('balances.sync-sheets');
 });

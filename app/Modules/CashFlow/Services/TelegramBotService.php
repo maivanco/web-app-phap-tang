@@ -6,7 +6,11 @@ use App\Models\User;
 use App\Modules\CashFlow\Models\Branch;
 use App\Modules\CashFlow\Models\Brand;
 use App\Modules\CashFlow\Models\CustomerSource;
+use App\Modules\CashFlow\Models\DailyStaffBalance;
+use App\Modules\CashFlow\Models\Expense;
 use App\Modules\CashFlow\Models\FinancialAccount;
+use App\Modules\CashFlow\Models\InternalTransfer;
+use App\Modules\CashFlow\Models\OrderPayment;
 use App\Modules\CashFlow\Models\TelegramAuthorizedUser;
 use App\Modules\CashFlow\Models\TelegramSession;
 use Illuminate\Support\Facades\Http;
@@ -18,7 +22,8 @@ class TelegramBotService
 
     public function __construct(
         protected OrderService $orderService,
-        protected ExpenseService $expenseService
+        protected ExpenseService $expenseService,
+        protected GoogleSheetsSyncService $sheetsSyncService
     ) {
         $this->botToken = config('services.telegram.bot_token', env('TELEGRAM_BOT_TOKEN'));
     }
@@ -96,8 +101,8 @@ class TelegramBotService
         // Handle button clicks or text input based on mode
         $input = $callbackData ?: $text;
 
-        if (in_array($input, ['MODE_ORDER', 'MODE_EXPENSE', 'SELECT_BRANCH'])) {
-            $this->handleMainMenuSelection($session, $input, $chatId);
+        if (in_array($input, ['MODE_ORDER', 'MODE_EXPENSE', 'MODE_CLOSING_BALANCE', 'CMD_CLOSING_BALANCE', 'CMD_REENTER_OPENING_BALANCE', 'SELECT_BRANCH'])) {
+            $this->handleMainMenuSelection($session, $input, $chatId, $userId);
             return;
         }
 
@@ -105,8 +110,12 @@ class TelegramBotService
             $this->handleOrderFlow($session, $input, $chatId, $userId);
         } elseif ($session->current_mode === 'expense') {
             $this->handleExpenseFlow($session, $input, $chatId, $userId);
+        } elseif ($session->current_mode === 'opening_balance') {
+            $this->handleOpeningBalanceFlow($session, $input, $chatId, $userId);
+        } elseif ($session->current_mode === 'closing_balance') {
+            $this->handleClosingBalanceFlow($session, $input, $chatId, $userId);
         } else {
-            $this->handleMainMenuSelection($session, $input, $chatId);
+            $this->handleMainMenuSelection($session, $input, $chatId, $userId);
         }
     }
 
@@ -126,6 +135,7 @@ class TelegramBotService
                         ['text' => '💸 B. Chi tiêu', 'callback_data' => 'MODE_EXPENSE'],
                     ],
                     [
+                        ['text' => '🏁 Chốt số dư cuối ngày', 'callback_data' => 'MODE_CLOSING_BALANCE'],
                         ['text' => '🏢 Đổi chi nhánh', 'callback_data' => 'SELECT_BRANCH'],
                     ],
                 ],
@@ -133,7 +143,7 @@ class TelegramBotService
         ]);
     }
 
-    protected function handleMainMenuSelection(TelegramSession $session, string $input, int $chatId): void
+    protected function handleMainMenuSelection(TelegramSession $session, string $input, int $chatId, int $userId): void
     {
         if ($input === 'SELECT_BRANCH' || str_starts_with($input, 'SET_BRANCH_')) {
             if (str_starts_with($input, 'SET_BRANCH_')) {
@@ -151,6 +161,32 @@ class TelegramBotService
         }
 
         if ($input === 'MODE_ORDER' || strtoupper($input) === 'A') {
+            // Check if staff has an assigned bank account and whether they need to input opening balance today
+            $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
+            if ($user && $user->financial_account_id) {
+                $today = now()->toDateString();
+                $todayBalance = DailyStaffBalance::where('user_id', $user->id)
+                    ->whereDate('date', $today)
+                    ->first();
+
+                // If opening balance not set yet today
+                if (!$todayBalance || $todayBalance->opened_at === null) {
+                    $session->update([
+                        'current_mode' => 'opening_balance',
+                        'current_step' => 1,
+                        'draft_data' => ['pending_mode' => 'order'],
+                    ]);
+
+                    $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
+                    $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : "";
+
+                    $this->sendMessage($chatId, "🌅 *KHỞI ĐẦU CA MỚI - NHẬP SỐ DƯ ĐẦU NGÀY*\n\nChào *{$user->name}*, đây là phiên làm việc đầu ngày của bạn.\n\nVui lòng nhập *Số dư đầu ngày* hiện tại trên ứng dụng ngân hàng:\n🏦 *{$accName}{$letterCode}*\n\n_(Ví dụ: `5,000,000` hoặc `5000000` hoặc `5tr`)_", [
+                        'parse_mode' => 'Markdown',
+                    ]);
+                    return;
+                }
+            }
+
             if (!$session->selected_branch_id) {
                 $session->update(['current_mode' => 'order', 'current_step' => 1, 'draft_data' => []]);
                 $this->promptBranchSelection($chatId);
@@ -162,6 +198,75 @@ class TelegramBotService
                 'draft_data' => ['items' => []],
             ]);
             $this->promptConsultantSelection($chatId, "📝 *NHẬP ĐƠN BÁN HÀNG*");
+            return;
+        }
+
+        if ($input === 'MODE_CLOSING_BALANCE' || $input === 'CMD_CLOSING_BALANCE') {
+            $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
+            if (!$user || !$user->financial_account_id) {
+                $this->sendMessage($chatId, "⚠️ Bạn chưa được gán tài khoản ngân hàng nào trên hệ thống. Vui lòng liên hệ Quản lý/Admin để được phân quyền.", [
+                    'parse_mode' => 'Markdown',
+                ]);
+                $this->sendMainMenu($chatId, $session);
+                return;
+            }
+
+            $today = now()->toDateString();
+            $balance = DailyStaffBalance::where('user_id', $user->id)
+                ->whereDate('date', $today)
+                ->first();
+
+            $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
+            $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : "";
+
+            $currentOpeningText = ($balance && $balance->opened_at)
+                ? number_format((float) $balance->opening_balance) . " ₫"
+                : "Chưa ghi nhận";
+
+            $currentClosingText = ($balance && $balance->closing_balance !== null)
+                ? number_format((float) $balance->closing_balance) . " ₫"
+                : "Chưa chốt";
+
+            $session->update([
+                'current_mode' => 'closing_balance',
+                'current_step' => 1,
+                'draft_data' => [],
+            ]);
+
+            $this->sendMessage($chatId, "🏁 *CHỐT SỐ DƯ CUỐI NGÀY*\n\n👤 Nhân viên: *{$user->name}*\n🏦 Tài khoản: *{$accName}{$letterCode}*\n🌅 Số dư đầu ngày: *{$currentOpeningText}*\n🏁 Số dư chốt hiện tại: *{$currentClosingText}*\n\n👉 Vui lòng nhập *Số dư thực tế* trên app ngân hàng tại thời điểm kết ca:\n_(Ví dụ: `15,000,000` hoặc `15tr`)_", [
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '🌅 Nhập lại số dư đầu ngày', 'callback_data' => 'CMD_REENTER_OPENING_BALANCE'],
+                        ],
+                        [
+                            ['text' => '🔙 Quay lại Menu', 'callback_data' => 'CMD_START'],
+                        ],
+                    ],
+                ]),
+            ]);
+            return;
+        }
+
+        if ($input === 'CMD_REENTER_OPENING_BALANCE') {
+            $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
+            $accName = $user?->financialAccount?->name ?? 'Tài khoản ngân hàng';
+
+            $session->update([
+                'current_mode' => 'opening_balance',
+                'current_step' => 1,
+                'draft_data' => ['pending_mode' => 'main_menu'],
+            ]);
+
+            $this->sendMessage($chatId, "🌅 *CẬP NHẬT LẠI SỐ DƯ ĐẦU NGÀY*\n\n🏦 Tài khoản: *{$accName}*\n\n👉 Vui lòng nhập số dư đầu ngày mới:\n_(Ví dụ: `5,000,000` hoặc `5tr`)_", [
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [['text' => '🔙 Hủy & Về Menu', 'callback_data' => 'CMD_START']],
+                    ],
+                ]),
+            ]);
             return;
         }
 
@@ -796,6 +901,254 @@ class TelegramBotService
             Log::error("Failed to create expense via Telegram: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $this->sendMessage($chatId, "❌ Lỗi lưu chi tiêu: " . $e->getMessage() . "\nVui lòng thử lại hoặc gõ /huy.");
         }
+    }
+
+    /**
+     * Handle Opening Balance Input.
+     */
+    protected function handleOpeningBalanceFlow(TelegramSession $session, string $input, int $chatId, int $userId): void
+    {
+        $amount = $this->parseAmount($input);
+        if ($amount === null) {
+            $this->sendMessage($chatId, "⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `5,000,000` hoặc `5tr`):", [
+                'parse_mode' => 'Markdown',
+            ]);
+            return;
+        }
+
+        $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
+        if (!$user || !$user->financial_account_id) {
+            $this->sendMessage($chatId, "⚠️ Tài khoản của bạn chưa được liên kết với tài khoản ngân hàng nào. Vui lòng liên hệ Quản lý/Admin.");
+            $this->sendMainMenu($chatId, $session);
+            return;
+        }
+
+        $today = now()->toDateString();
+
+        // Update or create today's balance (allows overwrite if within same day)
+        $balance = DailyStaffBalance::where('user_id', $user->id)
+            ->whereDate('date', $today)
+            ->first();
+
+        if ($balance) {
+            $balance->update([
+                'account_id' => $user->financial_account_id,
+                'opening_balance' => $amount,
+                'opened_at' => now(),
+            ]);
+        } else {
+            $balance = DailyStaffBalance::create([
+                'date' => $today,
+                'user_id' => $user->id,
+                'account_id' => $user->financial_account_id,
+                'opening_balance' => $amount,
+                'opened_at' => now(),
+            ]);
+        }
+
+        // Sync to Google Sheets
+        try {
+            $this->sheetsSyncService->syncBalance($balance);
+        } catch (\Throwable $e) {
+            Log::warning("Failed to sync opening balance to Google Sheets: " . $e->getMessage());
+        }
+
+        $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
+        $formatted = number_format($amount);
+        $this->sendMessage($chatId, "✅ Đã lưu *Số dư đầu ngày*: *{$formatted} ₫*\n🏦 Tài khoản: *{$accName}*\n\nBắt đầu tạo đơn hàng...", [
+            'parse_mode' => 'Markdown',
+        ]);
+
+        $pending = $session->draft_data['pending_mode'] ?? 'order';
+        if ($pending === 'order') {
+            if (!$session->selected_branch_id) {
+                $session->update(['current_mode' => 'order', 'current_step' => 1, 'draft_data' => []]);
+                $this->promptBranchSelection($chatId);
+                return;
+            }
+            $session->update([
+                'current_mode' => 'order',
+                'current_step' => 2,
+                'draft_data' => ['items' => []],
+            ]);
+            $this->promptConsultantSelection($chatId, "📝 *NHẬP ĐƠN BÁN HÀNG*");
+            return;
+        }
+
+        $session->update([
+            'current_mode' => null,
+            'current_step' => 0,
+            'draft_data' => [],
+        ]);
+        $this->sendMainMenu($chatId, $session);
+    }
+
+    /**
+     * Handle Closing Balance Input.
+     */
+    protected function handleClosingBalanceFlow(TelegramSession $session, string $input, int $chatId, int $userId): void
+    {
+        $amount = $this->parseAmount($input);
+        if ($amount === null) {
+            $this->sendMessage($chatId, "⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `15,000,000` hoặc `15tr`):", [
+                'parse_mode' => 'Markdown',
+            ]);
+            return;
+        }
+
+        $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
+        if (!$user || !$user->financial_account_id) {
+            $this->sendMessage($chatId, "⚠️ Bạn chưa được gán tài khoản ngân hàng nào.");
+            $this->sendMainMenu($chatId, $session);
+            return;
+        }
+
+        $today = now()->toDateString();
+
+        // Update or create daily balance (allows overwrite if within same day)
+        $balance = DailyStaffBalance::where('user_id', $user->id)
+            ->whereDate('date', $today)
+            ->first();
+
+        if ($balance) {
+            $balance->update([
+                'account_id' => $user->financial_account_id,
+                'closing_balance' => $amount,
+                'closed_at' => now(),
+                'status' => 'closed',
+            ]);
+        } else {
+            $balance = DailyStaffBalance::create([
+                'date' => $today,
+                'user_id' => $user->id,
+                'account_id' => $user->financial_account_id,
+                'opening_balance' => 0,
+                'opened_at' => now(),
+                'closing_balance' => $amount,
+                'closed_at' => now(),
+                'status' => 'closed',
+            ]);
+        }
+
+        // Sync to Google Sheets
+        try {
+            $this->sheetsSyncService->syncBalance($balance);
+        } catch (\Throwable $e) {
+            Log::warning("Failed to sync closing balance to Google Sheets: " . $e->getMessage());
+        }
+
+        // Calculate reconciliation for summary display
+        $orderInflow = (float) OrderPayment::where('account_id', $balance->account_id)
+            ->where('status', 'completed')
+            ->whereDate('payment_date', $today)
+            ->sum('amount');
+
+        $cardInflow = (float) OrderPayment::where('card_settlement_account_id', $balance->account_id)
+            ->where('status', 'reconciled')
+            ->whereDate('card_settlement_date', $today)
+            ->sum('actual_received_amount');
+
+        $transfersIn = (float) InternalTransfer::where('to_account_id', $balance->account_id)
+            ->whereDate('transfer_date', $today)
+            ->sum('amount');
+
+        $transfersOut = (float) InternalTransfer::where('from_account_id', $balance->account_id)
+            ->whereDate('transfer_date', $today)
+            ->sum('amount');
+
+        $expensesOut = (float) Expense::where('account_id', $balance->account_id)
+            ->where('status', 'completed')
+            ->whereDate('expense_date', $today)
+            ->sum('total_amount');
+
+        $totalIn = $orderInflow + $cardInflow + $transfersIn;
+        $totalOut = $transfersOut + $expensesOut;
+        $expectedBalance = (float) $balance->opening_balance + $totalIn - $totalOut;
+        $discrepancy = $amount - $expectedBalance;
+
+        $discrepancyText = $discrepancy == 0
+            ? "✅ Khớp tuyệt đối (0 ₫)"
+            : ($discrepancy > 0
+                ? "🟢 Thừa: +" . number_format($discrepancy) . " ₫"
+                : "🔴 Thiếu: " . number_format($discrepancy) . " ₫");
+
+        $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
+
+        $summary = "🏁 *XÁC NHẬN CHỐT SỐ DƯ CA LÀM VIỆC*\n\n" .
+            "📅 Ngày: `" . now()->format('d/m/Y') . "`\n" .
+            "👤 Nhân viên: *{$user->name}*\n" .
+            "🏦 Tài khoản: *{$accName}*\n" .
+            "-----------------------------\n" .
+            "🌅 Số dư đầu ngày: *" . number_format((float) $balance->opening_balance) . " ₫*\n" .
+            "📥 Tiền thu đơn hàng: *+" . number_format($totalIn) . " ₫*\n" .
+            "📤 Tiền chi/chuyển: *-" . number_format($totalOut) . " ₫*\n" .
+            "📊 Số dư dự tính hệ thống: *" . number_format($expectedBalance) . " ₫*\n" .
+            "🏁 Số dư thực tế chốt: *" . number_format($amount) . " ₫*\n" .
+            "⚖️ Kết quả đối soát: *{$discrepancyText}*\n\n" .
+            "_(Bạn có thể nhập chốt lại bất kỳ lúc nào trong ngày nếu có thay đổi)_";
+
+        $session->update([
+            'current_mode' => null,
+            'current_step' => 0,
+            'draft_data' => [],
+        ]);
+
+        $this->sendMessage($chatId, $summary, [
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        ['text' => '🔄 Chốt lại số dư', 'callback_data' => 'MODE_CLOSING_BALANCE'],
+                        ['text' => '🏠 Menu chính', 'callback_data' => 'CMD_START'],
+                    ],
+                ],
+            ]),
+        ]);
+    }
+
+    /**
+     * Parse numeric amount string from user input (e.g. 5,000,000, 5000000, 5tr, 5m, 500k).
+     */
+    public function parseAmount(string $input): ?float
+    {
+        $clean = mb_strtolower(trim($input));
+        $clean = str_replace(['đ', 'vnd', ' '], '', $clean);
+
+        if ($clean === '0') {
+            return 0.0;
+        }
+
+        // Shorthand with 'tr' or 'm' (triệu)
+        if (str_ends_with($clean, 'tr') || str_ends_with($clean, 'm')) {
+            $raw = str_replace(['tr', 'm', ','], ['', '', '.'], $clean);
+            if (is_numeric($raw)) {
+                $val = (float) $raw * 1000000;
+                return $val >= 0 ? $val : null;
+            }
+        }
+
+        // Shorthand with 'k' (nghìn)
+        if (str_ends_with($clean, 'k')) {
+            $raw = str_replace(['k', ','], ['', '.'], $clean);
+            if (is_numeric($raw)) {
+                $val = (float) $raw * 1000;
+                return $val >= 0 ? $val : null;
+            }
+        }
+
+        // Standard number or formatted with dots / commas
+        if (preg_match('/^\d{1,3}([.,]\d{3})+$/', $clean)) {
+            $clean = preg_replace('/[.,]/', '', $clean);
+        } else {
+            $clean = str_replace(',', '', $clean);
+        }
+
+        if (!is_numeric($clean)) {
+            return null;
+        }
+
+        $amount = (float) $clean;
+        return $amount >= 0 ? $amount : null;
     }
 
     /**

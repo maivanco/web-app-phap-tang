@@ -10,9 +10,18 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import DangerButton from '@/Components/DangerButton';
 
+interface BankAccountItem {
+    id: number;
+    code: string;
+    letter_code?: string;
+    name: string;
+}
+
 interface UserItem extends User {
     role: 'admin' | 'manager' | 'seller';
     telegram_user_id: number | null;
+    financial_account_id?: number | null;
+    financial_account?: BankAccountItem | null;
     created_at: string;
 }
 
@@ -24,6 +33,7 @@ interface UsersIndexProps extends PageProps {
         last_page: number;
         total: number;
     };
+    accounts: BankAccountItem[];
     stats: {
         total: number;
         admins: number;
@@ -37,7 +47,7 @@ interface UsersIndexProps extends PageProps {
     };
 }
 
-export default function UsersIndex({ auth, users, stats, filters }: UsersIndexProps) {
+export default function UsersIndex({ auth, users, accounts, stats, filters }: UsersIndexProps) {
     const [search, setSearch] = useState(filters.search || '');
     const [roleFilter, setRoleFilter] = useState(filters.role || '');
 
@@ -55,6 +65,7 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
         email: '',
         role: 'seller' as 'admin' | 'manager' | 'seller',
         telegram_user_id: '',
+        financial_account_id: '' as string | number,
         password: '',
     });
 
@@ -85,6 +96,7 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
             email: '',
             role: 'seller',
             telegram_user_id: '',
+            financial_account_id: '',
             password: '',
         });
         setIsFormModalOpen(true);
@@ -98,6 +110,7 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
             email: user.email,
             role: user.role,
             telegram_user_id: user.telegram_user_id ? String(user.telegram_user_id) : '',
+            financial_account_id: user.financial_account_id ? user.financial_account_id : '',
             password: '',
         });
         setIsFormModalOpen(true);
@@ -260,6 +273,7 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
                                 <tr>
                                     <th scope="col" className="px-6 py-3.5 font-semibold">Người dùng</th>
                                     <th scope="col" className="px-6 py-3.5 font-semibold">Vai trò</th>
+                                    <th scope="col" className="px-6 py-3.5 font-semibold">Tài khoản ngân hàng</th>
                                     <th scope="col" className="px-6 py-3.5 font-semibold">Telegram User ID</th>
                                     <th scope="col" className="px-6 py-3.5 font-semibold">Ngày tạo</th>
                                     <th scope="col" className="px-6 py-3.5 font-semibold text-right">Thao tác</th>
@@ -268,7 +282,7 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
                             <tbody className="divide-y divide-slate-100 bg-white">
                                 {users.data.length === 0 ? (
                                     <tr>
-                                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                                             Không tìm thấy người dùng nào phù hợp với bộ lọc.
                                         </td>
                                     </tr>
@@ -295,6 +309,21 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {getRoleBadge(user.role)}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                {user.financial_account ? (
+                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                                                        <span>🏦</span>
+                                                        <span>{user.financial_account.name}</span>
+                                                        {user.financial_account.letter_code && (
+                                                            <span className="font-bold text-amber-600">({user.financial_account.letter_code})</span>
+                                                        )}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400 text-xs italic">
+                                                        Chưa gán
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {user.telegram_user_id ? (
@@ -416,6 +445,28 @@ export default function UsersIndex({ auth, users, stats, filters }: UsersIndexPr
                                 <option value="admin">⚡ Quản trị viên (Admin) - Toàn quyền cấu hình hệ thống</option>
                             </select>
                             <InputError message={errors.role} className="mt-1" />
+                        </div>
+
+                        {/* Bank Account */}
+                        <div>
+                            <InputLabel htmlFor="financial_account_id" value="Tài khoản ngân hàng phụ trách" />
+                            <select
+                                id="financial_account_id"
+                                value={data.financial_account_id || ''}
+                                onChange={(e) => setData('financial_account_id', e.target.value ? Number(e.target.value) : '')}
+                                className="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-xs text-sm"
+                            >
+                                <option value="">-- Chưa gán tài khoản ngân hàng --</option>
+                                {accounts?.map((acc) => (
+                                    <option key={acc.id} value={acc.id}>
+                                        {acc.letter_code ? `${acc.letter_code}. ` : ''}{acc.name} ({acc.code})
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="text-xs text-slate-500 mt-1">
+                                Tài khoản ngân hàng nhân viên chịu trách nhiệm báo cáo số dư đầu ngày và chốt cuối ngày.
+                            </p>
+                            <InputError message={errors.financial_account_id} className="mt-1" />
                         </div>
 
                         {/* Telegram User ID */}
