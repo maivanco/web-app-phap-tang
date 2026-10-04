@@ -3,6 +3,7 @@ set -e  # exit on first error
 
 # Parse command line arguments
 TARGET_ENV=""
+ENABLE_TUNNEL=true
 DOCKER_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -20,15 +21,21 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       ;;
+    --no-tunnel)
+      ENABLE_TUNNEL=false
+      shift
+      ;;
     -h|--help)
-      echo "Usage: ./start --env <local|production> [docker compose options]"
+      echo "Usage: ./start --env <local|production> [options] [docker compose options]"
       echo ""
       echo "Options:"
       echo "  --env <env>    Target environment (local, production)"
+      echo "  --no-tunnel    Disable Cloudflare tunnel (only applies to local environment)"
       echo "  -h, --help     Show this help message"
       echo ""
       echo "Examples:"
       echo "  ./start --env local"
+      echo "  ./start --env local --no-tunnel"
       echo "  ./start --env local --build"
       echo "  ./start --env production --build --force-recreate"
       exit 0
@@ -48,9 +55,22 @@ done
 # Require --env before executing anything
 if [ -z "$TARGET_ENV" ]; then
   echo "Error: The --env parameter is required before executing anything."
-  echo "Usage: ./start --env <local|production> [docker compose options]"
+  echo "Usage: ./start --env <local|production> [options] [docker compose options]"
   exit 1
 fi
+
+# Cleanup on exit
+cleanup() {
+  if [ -f ".cloudflared.pid" ]; then
+    CF_PID=$(cat .cloudflared.pid 2>/dev/null || true)
+    if [ -n "$CF_PID" ] && kill -0 "$CF_PID" 2>/dev/null; then
+      echo "Stopping Cloudflare tunnel (PID: $CF_PID)..."
+      kill "$CF_PID" 2>/dev/null || true
+    fi
+    rm -f .cloudflared.pid
+  fi
+}
+trap cleanup EXIT INT TERM
 
 # Check if .env file exists
 if [ ! -f .env ]; then
@@ -113,6 +133,74 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
   echo "Production environment is ready and running."
 else
   vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
+
+  # Start Cloudflare Tunnel for local environment by default
+  if [ "$ENABLE_TUNNEL" = true ]; then
+    if command -v cloudflared &> /dev/null; then
+      # Stop any existing tunnel tracked in pidfile
+      if [ -f ".cloudflared.pid" ]; then
+        OLD_PID=$(cat .cloudflared.pid 2>/dev/null || true)
+        if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+          echo "Stopping previous Cloudflare tunnel (PID: $OLD_PID)..."
+          kill "$OLD_PID" 2>/dev/null || true
+        fi
+        rm -f .cloudflared.pid
+      fi
+
+      APP_PORT_VAL=$(grep -E '^APP_PORT=' .env | cut -d '=' -f2 | tr -d ' "\r')
+      APP_PORT_VAL=${APP_PORT_VAL:-80}
+      echo "Starting Cloudflare tunnel for local environment (http://localhost:$APP_PORT_VAL)..."
+      rm -f .cloudflared.log
+
+      CF_TOKEN=$(grep -E '^CLOUDFLARE_TUNNEL_TOKEN=' .env | cut -d '=' -f2 | tr -d ' "\r')
+      if [ -n "$CF_TOKEN" ]; then
+        nohup cloudflared tunnel run --token "$CF_TOKEN" --no-autoupdate > .cloudflared.log 2>&1 &
+      else
+        nohup cloudflared tunnel --url "http://localhost:$APP_PORT_VAL" --no-autoupdate > .cloudflared.log 2>&1 &
+      fi
+
+      CF_PID=$!
+      echo "$CF_PID" > .cloudflared.pid
+
+      echo "Waiting for Cloudflare tunnel URL..."
+      TUNNEL_URL=""
+      for i in {1..20}; do
+        if [ -f .cloudflared.log ]; then
+          TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' .cloudflared.log | head -n 1 || true)
+          if [ -n "$TUNNEL_URL" ]; then
+            break
+          fi
+        fi
+        sleep 1
+      done
+
+      if [ -n "$TUNNEL_URL" ]; then
+        echo "================================================================="
+        echo "🌐 Cloudflare Tunnel connected: $TUNNEL_URL"
+        echo "================================================================="
+
+        # Automatically update Telegram Bot webhook if token configured
+        BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | cut -d '=' -f2 | tr -d ' "\r')
+        if [ -n "$BOT_TOKEN" ]; then
+          echo "Setting Telegram webhook to: $TUNNEL_URL/api/telegram/webhook..."
+          for attempt in {1..5}; do
+            sleep 2
+            if ./vendor/bin/sail artisan telegram:set-webhook "$TUNNEL_URL/api/telegram/webhook" > /dev/null 2>&1; then
+              echo "✅ Telegram webhook updated successfully!"
+              break
+            else
+              echo "Waiting for Cloudflare DNS propagation (attempt $attempt/5)..."
+            fi
+          done
+        fi
+      else
+        echo "⚠️ Cloudflare tunnel process started (PID: $CF_PID), but URL detection timed out. Check .cloudflared.log."
+      fi
+    else
+      echo "Notice: 'cloudflared' command not found. Cloudflare tunnel skipped."
+      echo "To enable, install via: brew install cloudflared"
+    fi
+  fi
 
   echo "Installing frontend dependencies..."
   npm install

@@ -96,6 +96,11 @@ class TelegramBotService
         // Handle button clicks or text input based on mode
         $input = $callbackData ?: $text;
 
+        if (in_array($input, ['MODE_ORDER', 'MODE_EXPENSE', 'SELECT_BRANCH'])) {
+            $this->handleMainMenuSelection($session, $input, $chatId);
+            return;
+        }
+
         if ($session->current_mode === 'order') {
             $this->handleOrderFlow($session, $input, $chatId, $userId);
         } elseif ($session->current_mode === 'expense') {
@@ -557,14 +562,42 @@ class TelegramBotService
         $step = $session->current_step;
 
         switch ($step) {
+            case 1: // Branch selection
+                $code = str_replace('SET_BRANCH_', '', $input);
+                $branch = Branch::where('code', strtoupper($code))
+                    ->orWhere('name', 'like', "%{$code}%")
+                    ->first();
+
+                if (!$branch) {
+                    $this->promptBranchSelection($chatId);
+                    return;
+                }
+
+                $session->update([
+                    'selected_branch_id' => $branch->id,
+                    'current_step' => 2,
+                ]);
+                $this->sendMessage($chatId, "✅ Đã chọn chi nhánh: *{$branch->name}*\n\n💸 *NHẬP CHI TIÊU*\n\nBước 1: Nhập *Người chi*:", ['parse_mode' => 'Markdown']);
+                break;
+
             case 2: // Spender name
-                $draft['spender_name'] = trim($input);
+                $spender = trim($input);
+                if (empty($spender)) {
+                    $this->sendMessage($chatId, "⚠️ Vui lòng nhập tên người chi:");
+                    return;
+                }
+                $draft['spender_name'] = $spender;
                 $session->update(['draft_data' => $draft, 'current_step' => 3]);
                 $this->sendMessage($chatId, "📝 Nhập *Nội dung chi*:", ['parse_mode' => 'Markdown']);
                 break;
 
             case 3: // Content
-                $draft['content'] = trim($input);
+                $content = trim($input);
+                if (empty($content)) {
+                    $this->sendMessage($chatId, "⚠️ Vui lòng nhập nội dung chi:");
+                    return;
+                }
+                $draft['content'] = $content;
                 $session->update(['draft_data' => $draft, 'current_step' => 4]);
                 $this->sendMessage($chatId, "🔢 Nhập *Số lượng* (nhập 1 nếu là tổng hóa đơn):", ['parse_mode' => 'Markdown']);
                 break;
@@ -581,11 +614,19 @@ class TelegramBotService
                 break;
 
             case 5: // Unit price
-                $price = (float) trim($input);
-                if ($price < 0) {
-                    $this->sendMessage($chatId, "⚠️ Giá tiền không được âm. Vui lòng nhập lại:");
+                $cleanPrice = strtolower(trim($input));
+                $cleanPrice = str_replace(['đ', 'vnd', ' '], '', $cleanPrice);
+                if (str_ends_with($cleanPrice, 'k')) {
+                    $cleanPrice = ((float) substr($cleanPrice, 0, -1)) * 1000;
+                } elseif (preg_match('/^\d{1,3}([.,]\d{3})+$/', $cleanPrice)) {
+                    $cleanPrice = str_replace(['.', ','], '', $cleanPrice);
+                }
+
+                if (!is_numeric($cleanPrice) || (float) $cleanPrice < 0) {
+                    $this->sendMessage($chatId, "⚠️ Giá tiền không hợp lệ hoặc bị âm. Vui lòng nhập lại:");
                     return;
                 }
+                $price = (float) $cleanPrice;
                 $draft['unit_price'] = $price;
                 $draft['total_amount'] = $draft['quantity'] * $price;
                 $session->update(['draft_data' => $draft, 'current_step' => 6]);
@@ -603,37 +644,102 @@ class TelegramBotService
                 break;
 
             case 6: // Payment method
-                if ($input === 'EXP_PAY_cash') {
+                $cleanInput = trim($input);
+                $isCash = $cleanInput === 'EXP_PAY_cash' || mb_strtolower($cleanInput) === 'tiền mặt' || mb_strtolower($cleanInput) === 'tien mat';
+                $isBank = $cleanInput === 'EXP_PAY_bank' || mb_strtolower($cleanInput) === 'chuyển khoản' || mb_strtolower($cleanInput) === 'chuyen khoan' || mb_strtolower($cleanInput) === 'ck' || mb_strtolower($cleanInput) === 'ngân hàng';
+
+                if ($isCash) {
                     $draft['payment_method'] = 'cash';
                     $session->update(['draft_data' => $draft, 'current_step' => 8]);
                     $this->sendMessage($chatId, "📝 Nhập *Ghi chú khoản chi* (nhập dấu `-` nếu không có):", ['parse_mode' => 'Markdown']);
                     return;
                 }
 
-                // Bank accounts A-G (F is prohibited!)
-                $accounts = FinancialAccount::where('status', 'active')
-                    ->where('type', 'bank') // Strictly excluding F
-                    ->orderBy('letter_code')
-                    ->get();
+                if ($isBank) {
+                    $draft['payment_method'] = 'bank_transfer';
+                    $session->update(['draft_data' => $draft, 'current_step' => 7]);
 
-                $keyboard = [];
-                foreach ($accounts as $acc) {
-                    $keyboard[] = [['text' => "{$acc->letter_code}. {$acc->name}", 'callback_data' => "EXP_ACC_{$acc->id}"]];
+                    // Bank accounts A-G (F is prohibited!)
+                    $accounts = FinancialAccount::where('status', 'active')
+                        ->where('type', 'bank') // Strictly excluding F
+                        ->orderBy('letter_code')
+                        ->get();
+
+                    $keyboard = [];
+                    foreach ($accounts as $acc) {
+                        $keyboard[] = [['text' => "{$acc->letter_code}. {$acc->name}", 'callback_data' => "EXP_ACC_{$acc->id}"]];
+                    }
+
+                    $this->sendMessage($chatId, "🏦 Chi từ *Tài khoản ngân hàng nào* (chọn A-G, F không dùng cho chi):", [
+                        'parse_mode' => 'Markdown',
+                        'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                    ]);
+                    return;
                 }
 
-                $session->update(['current_step' => 7]);
-                $this->sendMessage($chatId, "🏦 Chi từ *Tài khoản ngân hàng nào* (chọn A-G, F không dùng cho chi):", [
+                $this->sendMessage($chatId, "⚠️ Vui lòng chọn *Hình thức thanh toán* từ các nút bên dưới:", [
                     'parse_mode' => 'Markdown',
-                    'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                ['text' => '💵 Tiền mặt (Quỹ chi nhánh)', 'callback_data' => 'EXP_PAY_cash'],
+                                ['text' => '🏦 Chuyển khoản ngân hàng', 'callback_data' => 'EXP_PAY_bank'],
+                            ],
+                        ],
+                    ]),
                 ]);
                 break;
 
             case 7: // Bank account
-                $accId = (int) str_replace('EXP_ACC_', '', $input);
+                $account = null;
+                if (str_starts_with($input, 'EXP_ACC_')) {
+                    $accId = (int) substr($input, strlen('EXP_ACC_'));
+                    $account = FinancialAccount::where('status', 'active')
+                        ->where('type', 'bank')
+                        ->where('id', $accId)
+                        ->first();
+                } else {
+                    $trimmed = trim(strtoupper($input));
+                    // Check by letter code (A, B, C, D, E, G)
+                    $account = FinancialAccount::where('status', 'active')
+                        ->where('type', 'bank')
+                        ->where('letter_code', $trimmed)
+                        ->first();
+
+                    if (!$account) {
+                        $raw = trim($input);
+                        $account = FinancialAccount::where('status', 'active')
+                            ->where('type', 'bank')
+                            ->where(function ($q) use ($raw) {
+                                $q->where('name', 'like', "%{$raw}%")
+                                    ->orWhere('code', 'like', "%{$raw}%");
+                            })
+                            ->first();
+                    }
+                }
+
+                if (!$account) {
+                    $accounts = FinancialAccount::where('status', 'active')
+                        ->where('type', 'bank')
+                        ->orderBy('letter_code')
+                        ->get();
+
+                    $keyboard = [];
+                    foreach ($accounts as $acc) {
+                        $keyboard[] = [['text' => "{$acc->letter_code}. {$acc->name}", 'callback_data' => "EXP_ACC_{$acc->id}"]];
+                    }
+
+                    $this->sendMessage($chatId, "⚠️ Tài khoản không hợp lệ. Vui lòng chọn tài khoản ngân hàng từ danh sách bên dưới (A-G, F không dùng cho chi):", [
+                        'parse_mode' => 'Markdown',
+                        'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                    ]);
+                    return;
+                }
+
                 $draft['payment_method'] = 'bank_transfer';
-                $draft['account_id'] = $accId;
+                $draft['account_id'] = $account->id;
                 $session->update(['draft_data' => $draft, 'current_step' => 8]);
-                $this->sendMessage($chatId, "📝 Nhập *Ghi chú khoản chi* (nhập dấu `-` nếu không có):", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, "✅ Đã chọn tài khoản: *{$account->letter_code}. {$account->name}*\n\n📝 Nhập *Ghi chú khoản chi* (nhập dấu `-` nếu không có):", ['parse_mode' => 'Markdown']);
                 break;
 
             case 8: // Note & Finalize
@@ -664,17 +770,19 @@ class TelegramBotService
             $sourceText = $expense->method === 'cash' ? "Quỹ tiền mặt ({$expense->branch->name})" :
                 "Tài khoản ({$expense->account?->name})";
 
+            $escape = fn ($val) => str_replace(['_', '*', '`', '['], ['\\_', '\\*', '\\`', '\\['], (string) ($val ?? ''));
+
             $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU!*\n\n" .
                 "📄 Mã chi: `{$expense->expense_code}`\n" .
                 "📅 Ngày chi: {$expense->expense_date->format('d/m/Y')}\n" .
-                "🏢 Chi nhánh: {$expense->branch->name}\n" .
-                "👤 Người chi: {$expense->spender_name}\n" .
-                "📝 Nội dung: {$expense->content}\n" .
+                "🏢 Chi nhánh: " . $escape($expense->branch->name) . "\n" .
+                "👤 Người chi: " . $escape($expense->spender_name) . "\n" .
+                "📝 Nội dung: " . $escape($expense->content) . "\n" .
                 "🔢 Số lượng: {$expense->quantity}\n" .
                 "💰 Đơn giá: " . number_format($expense->unit_price) . "đ\n" .
                 "💸 *Tổng chi:* *" . number_format($expense->total_amount) . "đ*\n" .
-                "💳 Nguồn tiền: {$sourceText}\n" .
-                "📌 Ghi chú: " . ($expense->note ?: 'Không có') . "\n";
+                "💳 Nguồn tiền: " . $escape($sourceText) . "\n" .
+                "📌 Ghi chú: " . $escape($expense->note ?: 'Không có') . "\n";
 
             $this->sendMessage($chatId, $msg, [
                 'parse_mode' => 'Markdown',
@@ -685,7 +793,7 @@ class TelegramBotService
                 ]),
             ]);
         } catch (\Throwable $e) {
-            Log::error("Failed to create expense via Telegram: " . $e->getMessage());
+            Log::error("Failed to create expense via Telegram: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $this->sendMessage($chatId, "❌ Lỗi lưu chi tiêu: " . $e->getMessage() . "\nVui lòng thử lại hoặc gõ /huy.");
         }
     }

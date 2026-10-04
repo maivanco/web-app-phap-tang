@@ -713,6 +713,233 @@ class CashFlowTest extends TestCase
         $this->assertNull($session->current_mode);
         $this->assertEquals(0, $session->current_step);
     }
+
+    public function test_telegram_bot_expense_creation_from_fresh_session_with_branch_selection_and_cash(): void
+    {
+        \Illuminate\Support\Facades\Http::fake();
+
+        \App\Modules\CashFlow\Models\TelegramAuthorizedUser::create([
+            'telegram_user_id' => 555666777,
+            'full_name' => 'Expense Author',
+            'role' => 'seller',
+            'is_active' => true,
+        ]);
+
+        $botService = app(\App\Modules\CashFlow\Services\TelegramBotService::class);
+
+        // 1. User starts fresh with /start
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 777888999],
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'text' => '/start',
+            ],
+        ]);
+
+        $session = \App\Modules\CashFlow\Models\TelegramSession::where('telegram_chat_id', 777888999)->first();
+        $this->assertNotNull($session);
+        $this->assertNull($session->selected_branch_id);
+
+        // 2. User selects MODE_EXPENSE
+        $botService->handleUpdate([
+            'callback_query' => [
+                'id' => 'cb-exp-1',
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'message' => ['chat' => ['id' => 777888999], 'message_id' => 101],
+                'data' => 'MODE_EXPENSE',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals('expense', $session->current_mode);
+        $this->assertEquals(1, $session->current_step);
+
+        // 3. User chooses Branch A via SET_BRANCH_A
+        $botService->handleUpdate([
+            'callback_query' => [
+                'id' => 'cb-exp-2',
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'message' => ['chat' => ['id' => 777888999], 'message_id' => 102],
+                'data' => "SET_BRANCH_{$this->branchA->code}",
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals($this->branchA->id, $session->selected_branch_id);
+        $this->assertEquals('expense', $session->current_mode);
+        $this->assertEquals(2, $session->current_step);
+
+        // 4. User inputs spender name
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 777888999],
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'text' => 'Nguyễn Văn Chi',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(3, $session->current_step);
+        $this->assertEquals('Nguyễn Văn Chi', $session->draft_data['spender_name']);
+
+        // 5. User inputs content
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 777888999],
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'text' => 'Mua hoa quả bàn thờ',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(4, $session->current_step);
+        $this->assertEquals('Mua hoa quả bàn thờ', $session->draft_data['content']);
+
+        // 6. User inputs quantity
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 777888999],
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'text' => '2',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(5, $session->current_step);
+        $this->assertEquals(2, $session->draft_data['quantity']);
+
+        // 7. User inputs unit price (with format 150k or 150000)
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 777888999],
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'text' => '150.000',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(6, $session->current_step);
+        $this->assertEquals(150000, $session->draft_data['unit_price']);
+        $this->assertEquals(300000, $session->draft_data['total_amount']);
+
+        // 8. User chooses Cash
+        $botService->handleUpdate([
+            'callback_query' => [
+                'id' => 'cb-exp-3',
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'message' => ['chat' => ['id' => 777888999], 'message_id' => 103],
+                'data' => 'EXP_PAY_cash',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(8, $session->current_step);
+        $this->assertEquals('cash', $session->draft_data['payment_method']);
+
+        // 9. User enters note and finalizes
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 777888999],
+                'from' => ['id' => 555666777, 'first_name' => 'Author'],
+                'text' => 'Đã thắp hương xong',
+            ],
+        ]);
+
+        $this->assertDatabaseHas('expenses', [
+            'branch_id' => $this->branchA->id,
+            'spender_name' => 'Nguyễn Văn Chi',
+            'content' => 'Mua hoa quả bàn thờ',
+            'quantity' => 2,
+            'unit_price' => 150000,
+            'total_amount' => 300000,
+            'method' => 'cash',
+            'account_id' => $this->cashA->id,
+            'note' => 'Đã thắp hương xong',
+            'telegram_user_id' => 555666777,
+        ]);
+
+        $session->refresh();
+        $this->assertNull($session->current_mode);
+        $this->assertEquals(0, $session->current_step);
+    }
+
+    public function test_telegram_bot_expense_creation_with_bank_transfer(): void
+    {
+        \Illuminate\Support\Facades\Http::fake();
+
+        \App\Modules\CashFlow\Models\TelegramAuthorizedUser::create([
+            'telegram_user_id' => 444333222,
+            'full_name' => 'Bank Spender',
+            'role' => 'seller',
+            'is_active' => true,
+        ]);
+
+        $session = \App\Modules\CashFlow\Models\TelegramSession::create([
+            'telegram_chat_id' => 888999000,
+            'telegram_user_id' => 444333222,
+            'current_mode' => 'expense',
+            'current_step' => 6,
+            'selected_branch_id' => $this->branchA->id,
+            'draft_data' => [
+                'spender_name' => 'Trần Văn Chi',
+                'content' => 'Tiền điện văn phòng',
+                'quantity' => 1,
+                'unit_price' => 500000,
+                'total_amount' => 500000,
+            ],
+        ]);
+
+        $botService = app(\App\Modules\CashFlow\Services\TelegramBotService::class);
+
+        // Select Bank Transfer
+        $botService->handleUpdate([
+            'callback_query' => [
+                'id' => 'cb-exp-bank',
+                'from' => ['id' => 444333222, 'first_name' => 'Spender'],
+                'message' => ['chat' => ['id' => 888999000], 'message_id' => 201],
+                'data' => 'EXP_PAY_bank',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(7, $session->current_step);
+
+        // Select Account A (Bank A) via text code 'A'
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 888999000],
+                'from' => ['id' => 444333222, 'first_name' => 'Spender'],
+                'text' => 'A',
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals(8, $session->current_step);
+        $this->assertEquals($this->bankPhu->id, $session->draft_data['account_id']);
+
+        // Finalize with note '-'
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => 888999000],
+                'from' => ['id' => 444333222, 'first_name' => 'Spender'],
+                'text' => '-',
+            ],
+        ]);
+
+        $this->assertDatabaseHas('expenses', [
+            'branch_id' => $this->branchA->id,
+            'spender_name' => 'Trần Văn Chi',
+            'content' => 'Tiền điện văn phòng',
+            'total_amount' => 500000,
+            'method' => 'bank_transfer',
+            'account_id' => $this->bankPhu->id,
+            'note' => null,
+        ]);
+
+        $session->refresh();
+        $this->assertNull($session->current_mode);
+        $this->assertEquals(0, $session->current_step);
+    }
 }
 
 
