@@ -65,6 +65,15 @@ export default function Sidebar() {
                     icon: '⚖️',
                     href: admin_url('cashflow/balances'),
                 },
+                ...(isManagerOrAdmin
+                    ? [
+                          {
+                              label: 'Quản lý quỹ tiền',
+                              icon: '💰',
+                              href: admin_url('cashflow/financial-accounts'),
+                          },
+                      ]
+                    : []),
             ],
         },
         {

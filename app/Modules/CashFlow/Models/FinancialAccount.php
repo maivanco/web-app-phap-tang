@@ -30,6 +30,11 @@ class FinancialAccount extends Model
         return $this->hasMany(InitialBalance::class, 'account_id');
     }
 
+    public function latestInitialBalance(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(InitialBalance::class, 'account_id')->latestOfMany('effective_date');
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(OrderPayment::class, 'account_id');

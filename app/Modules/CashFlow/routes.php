@@ -4,6 +4,7 @@ use App\Modules\CashFlow\Controllers\BalanceController;
 use App\Modules\CashFlow\Controllers\CardSettlementController;
 use App\Modules\CashFlow\Controllers\DashboardController;
 use App\Modules\CashFlow\Controllers\ExpenseController;
+use App\Modules\CashFlow\Controllers\FinancialAccountController;
 use App\Modules\CashFlow\Controllers\InternalTransferController;
 use App\Modules\CashFlow\Controllers\OrderController;
 use App\Modules\CashFlow\Controllers\TelegramWebhookController;
@@ -56,4 +57,10 @@ Route::middleware(['auth'])->prefix('admin/cashflow')->name('admin.cashflow.')->
     Route::post('/balances', [BalanceController::class, 'store'])->name('balances.store');
     Route::put('/balances/{balance}', [BalanceController::class, 'update'])->name('balances.update');
     Route::post('/balances/{balance}/sync-sheets', [BalanceController::class, 'syncSheets'])->name('balances.sync-sheets');
+
+    // Financial Accounts (Quản lý quỹ tiền)
+    Route::get('/financial-accounts', [FinancialAccountController::class, 'index'])->name('financial-accounts.index');
+    Route::post('/financial-accounts', [FinancialAccountController::class, 'store'])->name('financial-accounts.store');
+    Route::put('/financial-accounts/{financial_account}', [FinancialAccountController::class, 'update'])->name('financial-accounts.update');
+    Route::delete('/financial-accounts/{financial_account}', [FinancialAccountController::class, 'destroy'])->name('financial-accounts.destroy');
 });
