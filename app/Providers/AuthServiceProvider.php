@@ -18,6 +18,8 @@ class AuthServiceProvider extends ServiceProvider
         \App\Modules\CashFlow\Models\InternalTransfer::class => \App\Modules\CashFlow\Policies\InternalTransferPolicy::class,
         \App\Modules\CashFlow\Models\DailyStaffBalance::class => \App\Modules\CashFlow\Policies\DailyStaffBalancePolicy::class,
         \App\Models\User::class => \App\Modules\CashFlow\Policies\UserPolicy::class,
+        \App\Modules\QrEventGenerator\Models\Event::class => \App\Modules\QrEventGenerator\Policies\EventPolicy::class,
+        \App\Modules\QrEventGenerator\Models\EventAttendee::class => \App\Modules\QrEventGenerator\Policies\EventAttendeePolicy::class,
     ];
 
     /**

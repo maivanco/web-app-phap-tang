@@ -206,7 +206,7 @@ export default function BalancesIndex({
         >
             <Head title="Quản lý Số Dư - Pháp Tạng" />
 
-            <div className="space-y-6">
+            <div className="space-y-6 p-6">
                 {/* KPI Stat Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">

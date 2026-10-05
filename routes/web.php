@@ -51,3 +51,8 @@ if (file_exists(app_path('Modules/CashFlow/routes.php'))) {
     require app_path('Modules/CashFlow/routes.php');
 }
 
+// Load QrEventGenerator Module routes
+if (file_exists(app_path('Modules/QrEventGenerator/routes.php'))) {
+    require app_path('Modules/QrEventGenerator/routes.php');
+}
+

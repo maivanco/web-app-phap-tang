@@ -67,6 +67,27 @@ export default function Sidebar() {
                 },
             ],
         },
+        {
+            label: 'Sự kiện & Vé QR',
+            icon: '🎫',
+            children: [
+                {
+                    label: 'Danh sách sự kiện',
+                    icon: '📅',
+                    href: admin_url('qr-events'),
+                },
+                {
+                    label: 'Tạo sự kiện mới',
+                    icon: '➕',
+                    href: admin_url('qr-events/create'),
+                },
+                {
+                    label: 'Quét mã QR Check-in',
+                    icon: '📷',
+                    href: admin_url('qr-events/scanner/view'),
+                },
+            ],
+        },
         ...(isManagerOrAdmin
             ? [
                   {
