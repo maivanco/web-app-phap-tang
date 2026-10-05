@@ -119,6 +119,13 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
     vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
   fi
 
+  echo "Running database migrations..."
+  if [ -f "docker-compose-prod.yml" ]; then
+    docker compose -f docker-compose-prod.yml exec -T laravel.app php artisan migrate --force
+  else
+    vendor/bin/sail artisan migrate --force
+  fi
+
   echo "Installing frontend dependencies..."
   if command -v npm &> /dev/null; then
     npm install
@@ -133,6 +140,9 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
   echo "Production environment is ready and running."
 else
   vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
+
+  echo "Running database migrations..."
+  vendor/bin/sail artisan migrate
 
   # Start Cloudflare Tunnel for local environment by default
   if [ "$ENABLE_TUNNEL" = true ]; then
