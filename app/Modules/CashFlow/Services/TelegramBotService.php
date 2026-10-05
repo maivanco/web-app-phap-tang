@@ -135,7 +135,7 @@ class TelegramBotService
                         ['text' => '💸 B. Chi tiêu', 'callback_data' => 'MODE_EXPENSE'],
                     ],
                     [
-                        ['text' => '🏁 Chốt số dư cuối ngày', 'callback_data' => 'MODE_CLOSING_BALANCE'],
+                        ['text' => '🏁 Nhập số dư', 'callback_data' => 'MODE_CLOSING_BALANCE'],
                         ['text' => '🏢 Đổi chi nhánh', 'callback_data' => 'SELECT_BRANCH'],
                     ],
                 ],
