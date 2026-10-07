@@ -362,6 +362,8 @@ class QrEventGeneratorTest extends TestCase
         // Verify linked image URL is present in the rendered HTML
         $expectedUrl = $qrService->getQrImageUrl($attendee);
         $mailable->assertSeeInHtml($expectedUrl);
+        $mailable->assertDontSeeInHtml('Xem Thẻ Vé Trực Tuyến');
+        $mailable->assertDontSeeInHtml($qrService->getVerificationUrl($attendee));
     }
 
     public function test_qr_code_is_stored_on_server_and_publicly_accessible(): void

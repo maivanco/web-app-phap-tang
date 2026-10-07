@@ -120,13 +120,7 @@
                                 Xuất trình mã QR này tại quầy đón tiếp của sự kiện để nhân viên quét và hoàn tất thủ tục check-in.
                             </p>
 
-                            @if(!empty($verificationUrl))
-                                <div style="margin-top: 20px;">
-                                    <a href="{{ $verificationUrl }}" target="_blank" style="display: inline-block; padding: 12px 28px; background-color: #4338ca; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 700; border-radius: 12px; box-shadow: 0 4px 10px rgba(67, 56, 202, 0.3);">
-                                        Xem Thẻ Vé Trực Tuyến &rarr;
-                                    </a>
-                                </div>
-                            @endif
+
                         </td>
                     </tr>
 

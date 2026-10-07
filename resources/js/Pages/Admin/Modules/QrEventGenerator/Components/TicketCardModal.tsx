@@ -93,7 +93,7 @@ export default function TicketCardModal({
                         <span className="text-xs uppercase tracking-widest text-indigo-400 font-bold">
                             THẺ VÉ QR SỰ KIỆN
                         </span>
-                        <h3 className="text-lg font-extrabold text-white mt-0.5 truncate max-w-[280px]">
+                        <h3 className="text-lg font-extrabold text-white mt-0.5 max-w-[355px]">
                             {currentEventName}
                         </h3>
                     </div>

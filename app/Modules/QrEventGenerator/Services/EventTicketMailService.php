@@ -66,7 +66,6 @@ class EventTicketMailService
      */
     protected function sendViaBrevo(EventAttendee $attendee): void
     {
-        $verificationUrl = $this->qrCodeService->getVerificationUrl($attendee);
         $qrImageUrl = $this->qrCodeService->getQrImageUrl($attendee);
         $eventName = $attendee->event?->name ?? 'Sự Kiện';
         $subject = "🎫 [Vé Tham Dự] {$eventName} - Mã vé: {$attendee->ticket_code}";
@@ -75,7 +74,6 @@ class EventTicketMailService
             'attendee' => $attendee,
             'event' => $attendee->event,
             'qrImageUrl' => $qrImageUrl,
-            'verificationUrl' => $verificationUrl,
         ])->render();
 
         $result = $this->brevoService->sendEmail(

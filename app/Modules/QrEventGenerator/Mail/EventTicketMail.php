@@ -16,7 +16,6 @@ class EventTicketMail extends Mailable
     use Queueable, SerializesModels;
 
     public string $qrImageUrl;
-    public string $verificationUrl;
 
     /**
      * Create a new message instance.
@@ -26,7 +25,6 @@ class EventTicketMail extends Mailable
         QrCodeService $qrCodeService
     ) {
         $this->attendee->loadMissing('event');
-        $this->verificationUrl = $qrCodeService->getVerificationUrl($attendee);
         $this->qrImageUrl = $qrCodeService->getQrImageUrl($attendee);
     }
 
@@ -53,7 +51,6 @@ class EventTicketMail extends Mailable
                 'attendee' => $this->attendee,
                 'event' => $this->attendee->event,
                 'qrImageUrl' => $this->qrImageUrl,
-                'verificationUrl' => $this->verificationUrl,
             ],
         );
     }
