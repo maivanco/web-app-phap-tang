@@ -133,6 +133,13 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
     vendor/bin/sail artisan migrate --force
   fi
 
+  echo "Ensuring storage symlink exists..."
+  if [ -f "docker-compose-prod.yml" ]; then
+    docker compose -f docker-compose-prod.yml exec -T laravel.app php artisan storage:link || true
+  else
+    vendor/bin/sail artisan storage:link || true
+  fi
+
   echo "Installing frontend dependencies..."
   if command -v npm &> /dev/null; then
     npm install
@@ -150,6 +157,9 @@ else
 
   echo "Running database migrations..."
   vendor/bin/sail artisan migrate
+
+  echo "Ensuring storage symlink exists..."
+  vendor/bin/sail artisan storage:link || true
 
   # Start Cloudflare Tunnel for local environment by default
   if [ "$ENABLE_TUNNEL" = true ]; then
