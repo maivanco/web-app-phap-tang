@@ -473,7 +473,6 @@ export default function UsersIndex({ auth, users, accounts, stats, filters }: Us
                         <div>
                             <div className="flex items-center justify-between">
                                 <InputLabel htmlFor="telegram_user_id" value="Telegram User ID (Không bắt buộc)" />
-                                <span className="text-[11px] text-sky-600 font-medium">Bot: @mike100_bot</span>
                             </div>
                             <TextInput
                                 id="telegram_user_id"

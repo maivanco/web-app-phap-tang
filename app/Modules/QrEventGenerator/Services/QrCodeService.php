@@ -21,21 +21,27 @@ class QrCodeService
     }
 
     /**
-     * Generate QR code as Base64 Data URI (PNG or SVG).
+     * Generate QR code as Base64 Data URI (SVG or PNG).
+     * Defaults to SVG which requires no ext-gd extension and produces sharp vector graphics.
      */
-    public function generateDataUri(string $payload, string $type = 'png'): string
+    public function generateDataUri(string $payload, string $type = 'svg'): string
     {
-        if ($type === 'svg') {
-            $options = new QROptions([
-                'outputInterface' => QRMarkupSVG::class,
-                'outputBase64' => true,
-                'addQuietzone' => true,
-            ]);
-        } else {
+        // Gracefully fallback to SVG if GD is not loaded
+        if ($type === 'png' && !extension_loaded('gd')) {
+            $type = 'svg';
+        }
+
+        if ($type === 'png') {
             $options = new QROptions([
                 'outputInterface' => QRGdImagePNG::class,
                 'outputBase64' => true,
                 'scale' => 8,
+                'addQuietzone' => true,
+            ]);
+        } else {
+            $options = new QROptions([
+                'outputInterface' => QRMarkupSVG::class,
+                'outputBase64' => true,
                 'addQuietzone' => true,
             ]);
         }
@@ -81,7 +87,7 @@ class QrCodeService
         $event = $attendee->event;
 
         $verificationUrl = $this->getVerificationUrl($attendee);
-        $qrDataUri = $this->generateDataUri($verificationUrl, 'png');
+        $qrDataUri = $this->generateDataUri($verificationUrl, 'svg');
 
         $eventName = htmlspecialchars($event?->name ?? 'Special Event', ENT_XML1, 'UTF-8');
         $eventLocation = htmlspecialchars($event?->location ?? 'Store Location', ENT_XML1, 'UTF-8');

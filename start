@@ -119,6 +119,13 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
     vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
   fi
 
+  echo "Ensuring backend dependencies are up to date..."
+  if [ -f "docker-compose-prod.yml" ]; then
+    docker compose -f docker-compose-prod.yml exec -T laravel.app composer install --no-dev --prefer-dist --optimize-autoloader
+  else
+    vendor/bin/sail composer install --no-dev --prefer-dist --optimize-autoloader
+  fi
+
   echo "Running database migrations..."
   if [ -f "docker-compose-prod.yml" ]; then
     docker compose -f docker-compose-prod.yml exec -T laravel.app php artisan migrate --force

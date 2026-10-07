@@ -108,7 +108,7 @@ class EventController extends Controller
         // Attach QR data URI for each attendee on this page
         $attendees->getCollection()->transform(function ($attendee) {
             $verificationUrl = $this->qrCodeService->getVerificationUrl($attendee);
-            $attendee->qr_data_uri = $this->qrCodeService->generateDataUri($verificationUrl, 'png');
+            $attendee->qr_data_uri = $this->qrCodeService->generateDataUri($verificationUrl, 'svg');
             $attendee->verification_url = $verificationUrl;
             return $attendee;
         });

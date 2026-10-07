@@ -81,6 +81,11 @@ class QrEventGeneratorTest extends TestCase
         $this->assertEquals('0987654321', $attendee->phone);
         $this->assertStringStartsWith('TK-', $attendee->ticket_code);
         $this->assertEquals('pending', $attendee->status);
+
+        // Verify show page renders properly with attendee and attached QR data uri
+        $showResponse = $this->actingAs($this->adminUser)
+            ->get(route('admin.qr_events.show', $event));
+        $showResponse->assertOk();
     }
 
     public function test_admin_can_download_ticket_svg_and_qr_png(): void
