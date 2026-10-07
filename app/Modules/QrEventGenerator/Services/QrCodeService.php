@@ -7,6 +7,7 @@ use chillerlan\QRCode\Output\QRGdImagePNG;
 use chillerlan\QRCode\Output\QRMarkupSVG;
 use chillerlan\QRCode\QRCode;
 use chillerlan\QRCode\QROptions;
+use Illuminate\Support\Facades\Storage;
 
 class QrCodeService
 {
@@ -18,6 +19,53 @@ class QrCodeService
         return route('admin.qr_events.scanner.direct_check_in', [
             'ticket_code' => $attendee->ticket_code,
         ]);
+    }
+
+    /**
+     * Store the generated QR code PNG image in the public storage disk on the server.
+     *
+     * @param EventAttendee $attendee
+     * @param int $scale
+     * @param bool $force
+     * @return string Relative storage path (e.g. 'qr-codes/TK-ABC12345.png')
+     */
+    public function storeQrImage(EventAttendee $attendee, int $scale = 10, bool $force = false): string
+    {
+        $path = 'qr-codes/' . $attendee->ticket_code . '.png';
+
+        if (!$force && Storage::disk('public')->exists($path)) {
+            if ($attendee->qr_image_path !== $path) {
+                $attendee->forceFill(['qr_image_path' => $path])->saveQuietly();
+            }
+            return $path;
+        }
+
+        $verificationUrl = $this->getVerificationUrl($attendee);
+        $pngBinary = $this->generateBinaryPng($verificationUrl, $scale);
+
+        Storage::disk('public')->put($path, $pngBinary);
+
+        $attendee->forceFill(['qr_image_path' => $path])->saveQuietly();
+
+        return $path;
+    }
+
+    /**
+     * Get the publicly accessible HTTP URL of the stored QR image on the server.
+     * Generates and stores the image on the server if not already present.
+     *
+     * @param EventAttendee $attendee
+     * @return string Absolute URL
+     */
+    public function getQrImageUrl(EventAttendee $attendee): string
+    {
+        $path = $attendee->qr_image_path ?: ('qr-codes/' . $attendee->ticket_code . '.png');
+
+        if (!Storage::disk('public')->exists($path)) {
+            $path = $this->storeQrImage($attendee);
+        }
+
+        return url('storage/' . $path);
     }
 
     /**

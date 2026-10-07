@@ -21,6 +21,7 @@ Route::middleware(['web', 'auth'])->prefix('admin/qr-events')->name('admin.qr_ev
     Route::delete('/attendees/{attendee}', [EventAttendeeController::class, 'destroy'])->name('attendees.destroy');
     Route::get('/attendees/{attendee}/download-ticket', [EventAttendeeController::class, 'downloadTicket'])->name('attendees.download_ticket');
     Route::get('/attendees/{attendee}/qr-image', [EventAttendeeController::class, 'qrImage'])->name('attendees.qr_image');
+    Route::post('/attendees/{attendee}/resend-ticket', [EventAttendeeController::class, 'resendTicket'])->name('attendees.resend_ticket');
 
     // Scanner & Check-in
     Route::get('/scanner/view', [QrScannerController::class, 'index'])->name('scanner.index');
@@ -28,3 +29,7 @@ Route::middleware(['web', 'auth'])->prefix('admin/qr-events')->name('admin.qr_ev
     Route::post('/scanner/check-in', [QrScannerController::class, 'checkIn'])->name('scanner.check_in');
     Route::get('/check-in/{ticket_code}', [QrScannerController::class, 'directCheckInPage'])->name('scanner.direct_check_in');
 });
+
+// Public QR Code Image (accessible without authentication)
+Route::get('/qr-codes/{ticket_code}.png', [EventAttendeeController::class, 'publicQrImage'])
+    ->name('qr_events.public_qr_image');

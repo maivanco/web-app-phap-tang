@@ -202,10 +202,32 @@ class BrevoService
     }
 
     /**
-     * Send a test email via Brevo transactional SMTP API.
+     * Check if Brevo is configured with a valid API key.
      */
-    public function sendTestEmail(string $recipientEmail, ?string $apiKey = null): array
+    public function isConfigured(?string $explicitKey = null): bool
     {
+        return !empty($this->getApiKey($explicitKey));
+    }
+
+    /**
+     * Send an email via Brevo transactional SMTP API.
+     *
+     * @param string $recipientEmail
+     * @param string $subject
+     * @param string $htmlContent
+     * @param string|null $recipientName
+     * @param array<int, array{name: string, content: string}> $attachments Array of ['name' => '...', 'content' => 'base64_data']
+     * @param string|null $apiKey
+     * @return array{success: bool, message: string, messageId?: string}
+     */
+    public function sendEmail(
+        string $recipientEmail,
+        string $subject,
+        string $htmlContent,
+        ?string $recipientName = null,
+        array $attachments = [],
+        ?string $apiKey = null
+    ): array {
         $key = $this->getApiKey($apiKey);
 
         if (empty($key)) {
@@ -235,32 +257,31 @@ class BrevoService
             $senderName = config('app.name', 'Pháp Tạng');
         }
 
+        $toRecipient = ['email' => $recipientEmail];
+        if (!empty($recipientName)) {
+            $toRecipient['name'] = $recipientName;
+        }
+
+        $payload = [
+            'sender' => [
+                'name' => $senderName,
+                'email' => $senderEmail,
+            ],
+            'to' => [$toRecipient],
+            'subject' => $subject,
+            'htmlContent' => $htmlContent,
+        ];
+
+        if (!empty($attachments)) {
+            $payload['attachment'] = $attachments;
+        }
+
         try {
             $response = Http::withHeaders([
                 'api-key' => $key,
                 'accept' => 'application/json',
                 'content-type' => 'application/json',
-            ])->timeout(15)->post(self::BREVO_API_URL . '/smtp/email', [
-                'sender' => [
-                    'name' => $senderName,
-                    'email' => $senderEmail,
-                ],
-                'to' => [
-                    [
-                        'email' => $recipientEmail,
-                    ],
-                ],
-                'subject' => 'Kiểm tra cấu hình Email - ' . config('app.name', 'Pháp Tạng'),
-                'htmlContent' => '
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                        <h2 style="color: #d97706; margin-bottom: 8px;">Pháp Tạng - Email Test</h2>
-                        <p style="color: #334155; font-size: 15px;">Chúc mừng! Hệ thống gửi email qua Brevo API đã được kết nối và hoạt động chính xác.</p>
-                        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
-                        <p style="color: #64748b; font-size: 13px;">Thời gian gửi: ' . Carbon::now()->toDateTimeString() . '</p>
-                        <p style="color: #64748b; font-size: 13px;">Người gửi: ' . htmlspecialchars($senderName) . ' &lt;' . htmlspecialchars($senderEmail) . '&gt;</p>
-                    </div>
-                ',
-            ]);
+            ])->timeout(20)->post(self::BREVO_API_URL . '/smtp/email', $payload);
 
             if (!$response->successful()) {
                 $err = $response->json('message') ?? 'HTTP status ' . $response->status();
@@ -273,13 +294,41 @@ class BrevoService
 
             return [
                 'success' => true,
-                'message' => 'Test email sent successfully to ' . $recipientEmail . ' (Message ID: ' . ($response->json('messageId') ?? 'N/A') . ').',
+                'message' => 'Email sent successfully via Brevo to ' . $recipientEmail . ' (Message ID: ' . ($response->json('messageId') ?? 'N/A') . ').',
+                'messageId' => $response->json('messageId'),
             ];
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to send test email: ' . $e->getMessage(),
+                'message' => 'Failed to send email via Brevo: ' . $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Send a test email via Brevo transactional SMTP API.
+     */
+    public function sendTestEmail(string $recipientEmail, ?string $apiKey = null): array
+    {
+        $senderName = (string) ($this->settingService->get('mail_from_name') ?: config('app.name', 'Pháp Tạng'));
+        $senderEmail = (string) ($this->settingService->get('mail_from_address') ?: config('mail.from.address', 'noreply@phaptang.com'));
+
+        $subject = 'Kiểm tra cấu hình Email - ' . config('app.name', 'Pháp Tạng');
+        $htmlContent = '
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h2 style="color: #d97706; margin-bottom: 8px;">Pháp Tạng - Email Test</h2>
+                <p style="color: #334155; font-size: 15px;">Chúc mừng! Hệ thống gửi email qua Brevo API đã được kết nối và hoạt động chính xác.</p>
+                <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
+                <p style="color: #64748b; font-size: 13px;">Thời gian gửi: ' . Carbon::now()->toDateTimeString() . '</p>
+                <p style="color: #64748b; font-size: 13px;">Người gửi: ' . htmlspecialchars($senderName) . ' &lt;' . htmlspecialchars($senderEmail) . '&gt;</p>
+            </div>
+        ';
+
+        return $this->sendEmail(
+            recipientEmail: $recipientEmail,
+            subject: $subject,
+            htmlContent: $htmlContent,
+            apiKey: $apiKey
+        );
     }
 }

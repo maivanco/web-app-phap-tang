@@ -9,11 +9,14 @@ export interface AttendeeData {
     full_name: string;
     phone: string;
     email?: string | null;
+    is_email_sent?: boolean;
+    email_sent_at?: string | null;
     notes?: string | null;
     status: 'pending' | 'checked_in' | 'cancelled';
     checked_in_at?: string | null;
     checked_in_by_name?: string | null;
     qr_data_uri?: string;
+    qr_image_url?: string;
     verification_url?: string;
     event?: {
         id: number;
@@ -30,6 +33,8 @@ interface TicketCardModalProps {
     eventName?: string;
     eventLocation?: string;
     eventDate?: string;
+    onResendEmail?: (attendee: AttendeeData) => void;
+    isResending?: boolean;
 }
 
 export default function TicketCardModal({
@@ -39,6 +44,8 @@ export default function TicketCardModal({
     eventName,
     eventLocation,
     eventDate,
+    onResendEmail,
+    isResending,
 }: TicketCardModalProps) {
     if (!attendee) return null;
 
@@ -124,19 +131,15 @@ export default function TicketCardModal({
 
                     {/* QR Code */}
                     <div className="flex flex-col items-center justify-center p-3 bg-slate-50 border border-slate-200 rounded-xl my-3">
-                        {attendee.qr_data_uri ? (
-                            <img
-                                src={attendee.qr_data_uri}
-                                alt={`QR ${attendee.ticket_code}`}
-                                className="w-52 h-52 object-contain"
-                            />
-                        ) : (
-                            <img
-                                src={route('admin.qr_events.attendees.qr_image', { attendee: attendee.id })}
-                                alt={`QR ${attendee.ticket_code}`}
-                                className="w-52 h-52 object-contain"
-                            />
-                        )}
+                        <img
+                            src={
+                                attendee.qr_image_url ||
+                                attendee.qr_data_uri ||
+                                route('admin.qr_events.attendees.qr_image', { attendee: attendee.id })
+                            }
+                            alt={`QR ${attendee.ticket_code}`}
+                            className="w-52 h-52 object-contain"
+                        />
                         <p className="text-[11px] text-slate-400 mt-2 font-medium">
                             Quét mã này tại cửa hàng để xác nhận check-in
                         </p>
@@ -170,11 +173,37 @@ export default function TicketCardModal({
                                 </span>
                             )}
                         </div>
+                        {attendee.email && (
+                            <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+                                <span className="text-slate-500">Gửi Email:</span>
+                                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                                    {attendee.is_email_sent ? (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                                            ✓ Đã gửi
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                                            ⚠️ Chưa gửi
+                                        </span>
+                                    )}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2 mt-4">
+                    {attendee.email && onResendEmail && (
+                        <button
+                            onClick={() => onResendEmail(attendee)}
+                            type="button"
+                            disabled={isResending}
+                            className="flex-1 inline-flex justify-center items-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow transition disabled:opacity-50"
+                        >
+                            ✉️ {isResending ? 'Đang gửi...' : attendee.is_email_sent ? 'Gửi Lại Email Vé' : 'Gửi Email Vé Ngay'}
+                        </button>
+                    )}
                     <button
                         onClick={handleDownloadQrPng}
                         type="button"

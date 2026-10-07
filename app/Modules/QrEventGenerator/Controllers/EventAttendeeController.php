@@ -5,15 +5,19 @@ namespace App\Modules\QrEventGenerator\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\QrEventGenerator\Models\Event;
 use App\Modules\QrEventGenerator\Models\EventAttendee;
+use App\Modules\QrEventGenerator\Services\EventTicketMailService;
 use App\Modules\QrEventGenerator\Services\QrCodeService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class EventAttendeeController extends Controller
 {
-    public function __construct(protected QrCodeService $qrCodeService)
-    {
+    public function __construct(
+        protected QrCodeService $qrCodeService,
+        protected EventTicketMailService $mailService
+    ) {
         $this->authorizeResource(EventAttendee::class, 'attendee');
     }
 
@@ -33,8 +37,21 @@ class EventAttendeeController extends Controller
 
         $attendee = $event->attendees()->create($validated);
 
+        $emailNotice = '';
+        if (!empty($attendee->email)) {
+            try {
+                $this->mailService->sendTicketEmail($attendee);
+                $emailNotice = " và đã gửi email vé tham dự đến {$attendee->email}";
+            } catch (\Throwable $e) {
+                Log::error("Failed to send ticket email to {$attendee->email}: " . $e->getMessage(), [
+                    'exception' => $e,
+                ]);
+                $emailNotice = ", nhưng gửi email chưa thành công. Bạn có thể bấm 'Gửi lại' vé sau.";
+            }
+        }
+
         return redirect()->route('admin.qr_events.show', $event)
-            ->with('success', "Đã tạo mã QR vé thành công cho khách hàng {$attendee->full_name} ({$attendee->ticket_code})!");
+            ->with('success', "Đã tạo mã QR vé thành công cho khách hàng {$attendee->full_name} ({$attendee->ticket_code}){$emailNotice}!");
     }
 
     /**
@@ -92,14 +109,14 @@ class EventAttendeeController extends Controller
     }
 
     /**
-     * Stream or download the raw QR code PNG.
+     * Stream or download the QR code PNG (authenticated).
      */
     public function qrImage(Request $request, EventAttendee $attendee): Response
     {
         $this->authorize('view', $attendee);
 
-        $verificationUrl = $this->qrCodeService->getVerificationUrl($attendee);
-        $pngBinary = $this->qrCodeService->generateBinaryPng($verificationUrl, 12);
+        $path = $this->qrCodeService->storeQrImage($attendee, 12);
+        $pngBinary = \Illuminate\Support\Facades\Storage::disk('public')->get($path);
         $filename = 'qr-' . $attendee->ticket_code . '.png';
 
         $disposition = $request->boolean('download') ? 'attachment' : 'inline';
@@ -108,5 +125,47 @@ class EventAttendeeController extends Controller
             'Content-Type' => 'image/png',
             'Content-Disposition' => "{$disposition}; filename=\"{$filename}\"",
         ]);
+    }
+
+    /**
+     * Publicly serve the QR code PNG image (for email clients and direct links).
+     */
+    public function publicQrImage(string $ticket_code): Response
+    {
+        $attendee = EventAttendee::where('ticket_code', $ticket_code)->firstOrFail();
+        $path = $this->qrCodeService->storeQrImage($attendee, 10);
+        $pngBinary = \Illuminate\Support\Facades\Storage::disk('public')->get($path);
+
+        return response($pngBinary, 200, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'public, max-age=31536000',
+        ]);
+    }
+
+    /**
+     * Resend the ticket email to the attendee.
+     */
+    public function resendTicket(EventAttendee $attendee): RedirectResponse
+    {
+        $this->authorize('view', $attendee);
+
+        if (empty($attendee->email)) {
+            return redirect()->back()
+                ->with('error', "Khách hàng {$attendee->full_name} chưa có địa chỉ email. Vui lòng cập nhật email trước khi gửi.");
+        }
+
+        try {
+            $this->mailService->sendTicketEmail($attendee);
+
+            return redirect()->back()
+                ->with('success', "Đã gửi lại vé tham dự thành công đến email {$attendee->email}!");
+        } catch (\Throwable $e) {
+            Log::error("Failed to resend ticket email to {$attendee->email}: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return redirect()->back()
+                ->with('error', 'Không thể gửi email vé: ' . $e->getMessage());
+        }
     }
 }

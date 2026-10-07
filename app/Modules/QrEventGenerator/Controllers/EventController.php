@@ -105,10 +105,11 @@ class EventController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        // Attach QR data URI for each attendee on this page
+        // Attach QR data URI and server image URL for each attendee on this page
         $attendees->getCollection()->transform(function ($attendee) {
             $verificationUrl = $this->qrCodeService->getVerificationUrl($attendee);
             $attendee->qr_data_uri = $this->qrCodeService->generateDataUri($verificationUrl, 'svg');
+            $attendee->qr_image_url = $this->qrCodeService->getQrImageUrl($attendee);
             $attendee->verification_url = $verificationUrl;
             return $attendee;
         });

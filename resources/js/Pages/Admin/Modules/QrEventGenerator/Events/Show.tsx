@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, useForm, router } from '@inertiajs/react';
+import { Head, Link, useForm, router, usePage } from '@inertiajs/react';
 import { PageProps } from '@/types';
 import Modal from '@/Components/Modal';
 import InputLabel from '@/Components/InputLabel';
@@ -46,15 +46,23 @@ interface ShowProps extends PageProps {
         search?: string;
         status?: string;
     };
+    flash?: {
+        success?: string;
+        error?: string;
+    };
 }
 
 export default function Show({ auth, event, attendees, stats, filters }: ShowProps) {
+    const pageProps = usePage<ShowProps>().props;
+    const flash = pageProps.flash;
+
     const [search, setSearch] = useState(filters.search || '');
     const [statusFilter, setStatusFilter] = useState(filters.status || '');
 
     // Modal states
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedAttendeeForTicket, setSelectedAttendeeForTicket] = useState<AttendeeData | null>(null);
+    const [resendingId, setResendingId] = useState<number | null>(null);
 
     // Form for creating attendee
     const { data, setData, post, processing, errors, reset } = useForm({
@@ -72,6 +80,26 @@ export default function Show({ auth, event, attendees, stats, filters }: ShowPro
                 reset();
             },
         });
+    };
+
+    const handleResendEmail = (attendee: AttendeeData) => {
+        if (!attendee.email) {
+            alert('Khách hàng này chưa có địa chỉ email. Vui lòng cập nhật email trước.');
+            return;
+        }
+
+        const actionText = attendee.is_email_sent ? 'gửi lại' : 'gửi';
+        if (confirm(`Bạn có muốn ${actionText} vé QR qua email cho khách hàng "${attendee.full_name}" (${attendee.email}) không?`)) {
+            setResendingId(attendee.id);
+            router.post(
+                route('admin.qr_events.attendees.resend_ticket', { attendee: attendee.id }),
+                {},
+                {
+                    preserveScroll: true,
+                    onFinish: () => setResendingId(null),
+                }
+            );
+        }
     };
 
     const handleFilter = (e: React.FormEvent) => {
@@ -153,6 +181,24 @@ export default function Show({ auth, event, attendees, stats, filters }: ShowPro
             <Head title={`Sự kiện: ${event.name}`} />
 
             <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+                {/* Flash Messages */}
+                {flash?.success && (
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center justify-between text-sm shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2.5">
+                            <span className="text-lg">✅</span>
+                            <span className="font-medium">{flash.success}</span>
+                        </div>
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl flex items-center justify-between text-sm shadow-sm animate-fade-in">
+                        <div className="flex items-center gap-2.5">
+                            <span className="text-lg">⚠️</span>
+                            <span className="font-medium">{flash.error}</span>
+                        </div>
+                    </div>
+                )}
+
                 {/* Event Overview & Stats */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Event Detail Card */}
@@ -341,6 +387,7 @@ export default function Show({ auth, event, attendees, stats, filters }: ShowPro
                                         <th className="py-3 px-6">Khách Hàng</th>
                                         <th className="py-3 px-6">Mã QR</th>
                                         <th className="py-3 px-6">Trạng Thái</th>
+                                        <th className="py-3 px-6">Đã Gửi Email</th>
                                         <th className="py-3 px-6">Thời Gian Check-in</th>
                                         <th className="py-3 px-6 text-right">Thao Tác</th>
                                     </tr>
@@ -383,9 +430,9 @@ export default function Show({ auth, event, attendees, stats, filters }: ShowPro
                                                     className="group relative inline-block p-1 bg-white border border-slate-200 rounded-lg hover:border-indigo-400 transition"
                                                     title="Bấm để xem và tải vé"
                                                 >
-                                                    {att.qr_data_uri ? (
+                                                    {att.qr_image_url || att.qr_data_uri ? (
                                                         <img
-                                                            src={att.qr_data_uri}
+                                                            src={att.qr_image_url || att.qr_data_uri}
                                                             alt={att.ticket_code}
                                                             className="w-12 h-12 object-contain"
                                                         />
@@ -414,6 +461,58 @@ export default function Show({ auth, event, attendees, stats, filters }: ShowPro
                                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
                                                         ⏳ Chờ Check-in
                                                     </span>
+                                                )}
+                                            </td>
+
+                                            {/* Is Email Sent Column */}
+                                            <td className="py-3.5 px-6">
+                                                {!att.email ? (
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-400">
+                                                        Chưa có email
+                                                    </span>
+                                                ) : att.is_email_sent ? (
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span
+                                                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800"
+                                                                title={att.email_sent_at ? `Đã gửi lúc: ${new Date(att.email_sent_at).toLocaleString('vi-VN')}` : 'Đã gửi'}
+                                                            >
+                                                                <span className="text-[10px]">✓</span> Đã gửi
+                                                            </span>
+                                                        </div>
+                                                        {att.email_sent_at && (
+                                                            <span className="text-[10px] text-slate-400">
+                                                                {new Date(att.email_sent_at).toLocaleString('vi-VN', {
+                                                                    dateStyle: 'short',
+                                                                    timeStyle: 'short',
+                                                                })}
+                                                            </span>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleResendEmail(att)}
+                                                            disabled={resendingId === att.id}
+                                                            className="text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline text-left font-medium disabled:opacity-50 inline-flex items-center gap-1 mt-0.5"
+                                                            title="Gửi lại vé qua email nếu khách hàng chưa nhận được"
+                                                        >
+                                                            <span>🔄</span> {resendingId === att.id ? 'Đang gửi...' : 'Gửi lại'}
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col gap-1.5">
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 w-fit">
+                                                            <span>⚠️</span> Chưa gửi
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleResendEmail(att)}
+                                                            disabled={resendingId === att.id}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg text-xs transition border border-indigo-200 disabled:opacity-50 w-fit shadow-sm"
+                                                            title="Gửi email vé tham dự cho khách hàng này"
+                                                        >
+                                                            <span>📨</span> {resendingId === att.id ? 'Đang gửi...' : 'Gửi lại'}
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </td>
 
@@ -562,6 +661,9 @@ export default function Show({ auth, event, attendees, stats, filters }: ShowPro
                             onChange={(e) => setData('email', e.target.value)}
                             placeholder="khachhang@gmail.com..."
                         />
+                        <p className="text-[11px] text-slate-400 mt-1">
+                            💡 Nếu điền email, vé và mã QR sẽ tự động được gửi ngay tới hòm thư của khách hàng.
+                        </p>
                         <InputError message={errors.email} className="mt-1" />
                     </div>
 
@@ -604,6 +706,8 @@ export default function Show({ auth, event, attendees, stats, filters }: ShowPro
                           })
                         : undefined
                 }
+                onResendEmail={handleResendEmail}
+                isResending={resendingId === selectedAttendeeForTicket?.id}
             />
         </AuthenticatedLayout>
     );

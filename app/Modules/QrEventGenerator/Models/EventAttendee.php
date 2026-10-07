@@ -17,9 +17,12 @@ class EventAttendee extends Model
     protected $fillable = [
         'event_id',
         'ticket_code',
+        'qr_image_path',
         'full_name',
         'phone',
         'email',
+        'is_email_sent',
+        'email_sent_at',
         'notes',
         'status',
         'checked_in_at',
@@ -27,6 +30,8 @@ class EventAttendee extends Model
     ];
 
     protected $casts = [
+        'is_email_sent' => 'boolean',
+        'email_sent_at' => 'datetime',
         'checked_in_at' => 'datetime',
     ];
 
@@ -35,6 +40,20 @@ class EventAttendee extends Model
         static::creating(function (EventAttendee $attendee) {
             if (empty($attendee->ticket_code)) {
                 $attendee->ticket_code = self::generateUniqueTicketCode();
+            }
+        });
+
+        static::created(function (EventAttendee $attendee) {
+            try {
+                app(\App\Modules\QrEventGenerator\Services\QrCodeService::class)->storeQrImage($attendee);
+            } catch (\Throwable $e) {
+                // Non-fatal if QR image generation fails in creation hook
+            }
+        });
+
+        static::deleting(function (EventAttendee $attendee) {
+            if (!empty($attendee->qr_image_path)) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($attendee->qr_image_path);
             }
         });
     }

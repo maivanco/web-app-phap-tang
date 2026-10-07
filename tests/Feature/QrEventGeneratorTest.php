@@ -214,4 +214,181 @@ class QrEventGeneratorTest extends TestCase
 
         $response->assertOk();
     }
+
+    public function test_admin_creates_attendee_with_email_sends_ticket_email(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $event = Event::create([
+            'user_id' => $this->adminUser->id,
+            'name' => 'Customer Gala 2026',
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->post(route('admin.qr_events.attendees.store', $event), [
+                'full_name' => 'Tran Thi Huong',
+                'phone' => '0912345678',
+                'email' => 'huong@example.com',
+                'notes' => 'VIP Customer',
+            ]);
+
+        $response->assertRedirect(route('admin.qr_events.show', $event));
+
+        $attendee = EventAttendee::where('email', 'huong@example.com')->first();
+        $this->assertNotNull($attendee);
+        $this->assertTrue($attendee->is_email_sent);
+        $this->assertNotNull($attendee->email_sent_at);
+
+        \Illuminate\Support\Facades\Mail::assertSent(\App\Modules\QrEventGenerator\Mail\EventTicketMail::class, function ($mail) use ($attendee) {
+            return $mail->hasTo('huong@example.com') && $mail->attendee->id === $attendee->id;
+        });
+    }
+
+    public function test_admin_creates_attendee_without_email_does_not_send_mail(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $event = Event::create([
+            'user_id' => $this->adminUser->id,
+            'name' => 'Pop-up Workshop',
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->post(route('admin.qr_events.attendees.store', $event), [
+                'full_name' => 'Pham Van Dung',
+                'phone' => '0933445566',
+                'email' => null,
+            ]);
+
+        $response->assertRedirect(route('admin.qr_events.show', $event));
+
+        $attendee = EventAttendee::where('phone', '0933445566')->first();
+        $this->assertNotNull($attendee);
+        $this->assertFalse($attendee->is_email_sent);
+        $this->assertNull($attendee->email_sent_at);
+
+        \Illuminate\Support\Facades\Mail::assertNothingSent();
+    }
+
+    public function test_admin_can_resend_ticket_email_for_attendee(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $event = Event::create([
+            'user_id' => $this->adminUser->id,
+            'name' => 'Product Launch Event',
+            'status' => 'active',
+        ]);
+
+        $attendee = $event->attendees()->create([
+            'full_name' => 'Do Van Nam',
+            'phone' => '0944556677',
+            'email' => 'nam@example.com',
+            'status' => 'pending',
+            'is_email_sent' => false,
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->post(route('admin.qr_events.attendees.resend_ticket', $attendee));
+
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+
+        $attendee->refresh();
+        $this->assertTrue($attendee->is_email_sent);
+        $this->assertNotNull($attendee->email_sent_at);
+
+        \Illuminate\Support\Facades\Mail::assertSent(\App\Modules\QrEventGenerator\Mail\EventTicketMail::class, function ($mail) use ($attendee) {
+            return $mail->hasTo('nam@example.com') && $mail->attendee->id === $attendee->id;
+        });
+    }
+
+    public function test_resend_ticket_fails_if_attendee_has_no_email(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $event = Event::create([
+            'user_id' => $this->adminUser->id,
+            'name' => 'Exclusive Dinner',
+            'status' => 'active',
+        ]);
+
+        $attendee = $event->attendees()->create([
+            'full_name' => 'Vo Thi Mai',
+            'phone' => '0955667788',
+            'email' => null,
+            'status' => 'pending',
+            'is_email_sent' => false,
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->post(route('admin.qr_events.attendees.resend_ticket', $attendee));
+
+        $response->assertRedirect();
+        $response->assertSessionHas('error');
+
+        $attendee->refresh();
+        $this->assertFalse($attendee->is_email_sent);
+        \Illuminate\Support\Facades\Mail::assertNothingSent();
+    }
+
+    public function test_event_ticket_mail_content_uses_linked_qr_image(): void
+    {
+        $event = Event::create([
+            'user_id' => $this->adminUser->id,
+            'name' => 'Annual Summit',
+            'location' => 'Grand Palace, HCM',
+            'event_date' => now()->addDays(2),
+            'status' => 'active',
+        ]);
+
+        $attendee = $event->attendees()->create([
+            'full_name' => 'Le Thi Kieu',
+            'phone' => '0988776655',
+            'email' => 'kieu@example.com',
+            'status' => 'pending',
+        ]);
+
+        $qrService = app(\App\Modules\QrEventGenerator\Services\QrCodeService::class);
+        $mailable = new \App\Modules\QrEventGenerator\Mail\EventTicketMail($attendee, $qrService);
+
+        $mailable->assertHasSubject("🎫 [Vé Tham Dự] Annual Summit - Mã vé: {$attendee->ticket_code}");
+        $mailable->assertSeeInHtml('Le Thi Kieu');
+        $mailable->assertSeeInHtml($attendee->ticket_code);
+        $mailable->assertSeeInHtml('Grand Palace, HCM');
+
+        // Verify linked image URL is present in the rendered HTML
+        $expectedUrl = $qrService->getQrImageUrl($attendee);
+        $mailable->assertSeeInHtml($expectedUrl);
+    }
+
+    public function test_qr_code_is_stored_on_server_and_publicly_accessible(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+
+        $event = Event::create([
+            'user_id' => $this->adminUser->id,
+            'name' => 'Store Tech Showcase',
+            'status' => 'active',
+        ]);
+
+        $attendee = $event->attendees()->create([
+            'full_name' => 'Tran Van Dat',
+            'phone' => '0977665544',
+            'status' => 'pending',
+        ]);
+
+        $qrService = app(\App\Modules\QrEventGenerator\Services\QrCodeService::class);
+        $storedPath = $qrService->storeQrImage($attendee);
+
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($storedPath);
+        $this->assertEquals("qr-codes/{$attendee->ticket_code}.png", $storedPath);
+
+        // Verify public route renders PNG image
+        $response = $this->get(route('qr_events.public_qr_image', $attendee->ticket_code));
+        $response->assertOk();
+        $this->assertEquals('image/png', $response->headers->get('Content-Type'));
+    }
 }
