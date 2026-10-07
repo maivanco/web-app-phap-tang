@@ -104,6 +104,17 @@ export default function Sidebar() {
                       icon: '👥',
                       href: admin_url('cashflow/users'),
                   },
+                  {
+                      label: 'Cài đặt chung',
+                      icon: '⚙️',
+                      children: [
+                          {
+                              label: 'Cài đặt Email',
+                              icon: '📧',
+                              href: admin_url('settings/email'),
+                          },
+                      ],
+                  },
               ]
             : []),
         {

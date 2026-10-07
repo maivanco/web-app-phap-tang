@@ -21,6 +21,7 @@ class AuthServiceProvider extends ServiceProvider
         \App\Models\User::class => \App\Modules\CashFlow\Policies\UserPolicy::class,
         \App\Modules\QrEventGenerator\Models\Event::class => \App\Modules\QrEventGenerator\Policies\EventPolicy::class,
         \App\Modules\QrEventGenerator\Models\EventAttendee::class => \App\Modules\QrEventGenerator\Policies\EventAttendeePolicy::class,
+        \App\Modules\GeneralSettings\Models\Setting::class => \App\Modules\GeneralSettings\Policies\SettingPolicy::class,
     ];
 
     /**

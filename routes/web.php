@@ -56,3 +56,8 @@ if (file_exists(app_path('Modules/QrEventGenerator/routes.php'))) {
     require app_path('Modules/QrEventGenerator/routes.php');
 }
 
+// Load GeneralSettings Module routes
+if (file_exists(app_path('Modules/GeneralSettings/routes.php'))) {
+    require app_path('Modules/GeneralSettings/routes.php');
+}
+
