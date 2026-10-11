@@ -17,7 +17,7 @@ class GoogleSheetsTestCommand extends Command
      * @var string
      */
     protected $signature = 'google-sheets:test
-                            {--sheet=Don_Hang : Target sheet name (Don_Hang, Data_Chi, Chuyen_Tien, or Balance)}
+                            {--sheet=Don_Hang : Target sheet name (Don_Hang, Chi_Tiet_Don, Data_Chi, Chuyen_Tien, or Balance)}
                             {--order= : Specific order code to sync}
                             {--expense= : Specific expense code to sync}
                             {--balance= : Specific balance ID to sync}
@@ -205,6 +205,24 @@ class GoogleSheetsTestCommand extends Command
                 'status' => 'completed',
                 'created_by' => 'CLI Tester',
                 'version' => 1,
+            ]];
+        }
+
+        if ($sheet === 'Chi_Tiet_Don') {
+            return [[
+                'line_id' => "CLI-TEST-{$timestamp}-1",
+                'order_id' => "CLI-TEST-{$timestamp}",
+                'customer_name' => 'Khách Hàng Test CLI',
+                'customer_phone' => "'0909000000",
+                'line_number' => 1,
+                'product_name' => 'Sản phẩm Test CLI',
+                'brand_code' => 'PT',
+                'brand_name' => 'Pháp Tạng',
+                'quantity' => 1,
+                'unit_price' => 100000.0,
+                'gross_amount' => 100000.0,
+                'allocated_discount' => 0.0,
+                'net_amount' => 100000.0,
             ]];
         }
 

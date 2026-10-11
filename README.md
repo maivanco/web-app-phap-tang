@@ -129,7 +129,7 @@ Card transactions undergo a two-phase clearing lifecycle managed by `CardSettlem
 - Triggers non-blocking HTTP webhooks on order creation, item addition, payment capture, expense logging, and internal transfers.
 - **Target Sheets**:
   - `Don_Hang`: Master sales order details.
-  - `Chi_Tiet_Don`: Line item breakdown per brand with allocated discounts.
+  - `Chi_Tiet_Don`: Line item breakdown per brand with customer name, customer phone, and allocated discounts.
   - `Thanh_Toan`: Payment records with card settlement tracking.
   - `Data_Chi`: Operational expense records.
   - `Chuyen_Tien`: Internal treasury movements.

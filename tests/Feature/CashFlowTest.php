@@ -940,6 +940,48 @@ class CashFlowTest extends TestCase
         $this->assertNull($session->current_mode);
         $this->assertEquals(0, $session->current_step);
     }
+
+    public function test_google_sheets_format_order_item_row_includes_customer_name_and_phone(): void
+    {
+        $syncService = app(\App\Modules\CashFlow\Services\GoogleSheetsSyncService::class);
+
+        $order = Order::create([
+            'order_code' => 'ORD-SYNC-ITEM-001',
+            'sale_date' => now()->toDateString(),
+            'branch_id' => $this->branchA->id,
+            'customer_name' => 'Nguyễn Văn Test',
+            'customer_phone' => '0987654321',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'discount_code' => 'E',
+            'gross_amount' => 100000,
+            'net_revenue' => 100000,
+            'status' => 'completed',
+        ]);
+
+        $item = $order->items()->create([
+            'line_number' => 1,
+            'product_name' => 'Nhang Trầm',
+            'brand_id' => $this->brandPhapTang->id,
+            'quantity' => 2,
+            'unit_price' => 50000,
+            'gross_amount' => 100000,
+            'allocated_discount' => 0,
+            'net_amount' => 100000,
+        ]);
+
+        $item->load('brand');
+
+        $row = $syncService->formatOrderItemRow($item, $order);
+
+        $this->assertEquals('ORD-SYNC-ITEM-001-1', $row['line_id']);
+        $this->assertEquals('ORD-SYNC-ITEM-001', $row['order_id']);
+        $this->assertEquals('Nguyễn Văn Test', $row['customer_name']);
+        $this->assertEquals("'0987654321", $row['customer_phone']);
+        $this->assertEquals(1, $row['line_number']);
+        $this->assertEquals('Nhang Trầm', $row['product_name']);
+    }
 }
+
 
 
