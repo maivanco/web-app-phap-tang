@@ -976,6 +976,7 @@ class CashFlowTest extends TestCase
 
         $this->assertEquals('ORD-SYNC-ITEM-001-1', $row['line_id']);
         $this->assertEquals('ORD-SYNC-ITEM-001', $row['order_id']);
+        $this->assertEquals(now()->format('Y-m-d'), $row['order_date']);
         $this->assertEquals('Nguyễn Văn Test', $row['customer_name']);
         $this->assertEquals("'0987654321", $row['customer_phone']);
         $this->assertEquals(1, $row['line_number']);

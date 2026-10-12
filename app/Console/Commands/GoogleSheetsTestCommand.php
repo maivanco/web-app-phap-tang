@@ -212,11 +212,11 @@ class GoogleSheetsTestCommand extends Command
             return [[
                 'line_id' => "CLI-TEST-{$timestamp}-1",
                 'order_id' => "CLI-TEST-{$timestamp}",
+                'order_date' => now()->format('Y-m-d'),
                 'customer_name' => 'Khách Hàng Test CLI',
                 'customer_phone' => "'0909000000",
                 'line_number' => 1,
                 'product_name' => 'Sản phẩm Test CLI',
-                'brand_code' => 'PT',
                 'brand_name' => 'Pháp Tạng',
                 'quantity' => 1,
                 'unit_price' => 100000.0,

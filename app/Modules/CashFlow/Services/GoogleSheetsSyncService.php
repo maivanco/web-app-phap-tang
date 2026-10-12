@@ -66,6 +66,7 @@ class GoogleSheetsSyncService
         return [
             'line_id' => "{$order->order_code}-{$item->line_number}",
             'order_id' => $order->order_code,
+            'order_date' => $order->sale_date?->format('Y-m-d'),
             'line_number' => $item->line_number,
             'customer_name' => $order->customer_name,
             'customer_phone' => !empty($order->customer_phone) ? "'" . $order->customer_phone : '',
