@@ -681,6 +681,7 @@ class TelegramBotService
                 $session->update([
                     'selected_branch_id' => $branch->id,
                     'current_step' => 2,
+                    'draft_data' => ['items' => []],
                 ]);
                 $this->sendMessage($chatId, "✅ Đã chọn chi nhánh: *{$branch->name}*\n\n💸 *NHẬP CHI TIÊU*\n\nBước 1: Nhập *Người chi*:", ['parse_mode' => 'Markdown']);
                 break;
@@ -692,8 +693,9 @@ class TelegramBotService
                     return;
                 }
                 $draft['spender_name'] = $spender;
+                $draft['items'] = $draft['items'] ?? [];
                 $session->update(['draft_data' => $draft, 'current_step' => 3]);
-                $this->sendMessage($chatId, "📝 Nhập *Nội dung chi*:", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, "📝 *Nhập mục chi 1:*\nNhập *Nội dung chi*:", ['parse_mode' => 'Markdown']);
                 break;
 
             case 3: // Content
@@ -702,7 +704,8 @@ class TelegramBotService
                     $this->sendMessage($chatId, "⚠️ Vui lòng nhập nội dung chi:");
                     return;
                 }
-                $draft['content'] = $content;
+                $draft['current_item']['content'] = $content;
+                $draft['content'] = $content; // for backward compatibility
                 $session->update(['draft_data' => $draft, 'current_step' => 4]);
                 $this->sendMessage($chatId, "🔢 Nhập *Số lượng* (nhập 1 nếu là tổng hóa đơn):", ['parse_mode' => 'Markdown']);
                 break;
@@ -713,7 +716,8 @@ class TelegramBotService
                     $this->sendMessage($chatId, "⚠️ Số lượng phải lớn hơn 0. Vui lòng nhập lại:");
                     return;
                 }
-                $draft['quantity'] = $qty;
+                $draft['current_item']['quantity'] = $qty;
+                $draft['quantity'] = $qty; // for backward compatibility
                 $session->update(['draft_data' => $draft, 'current_step' => 5]);
                 $this->sendMessage($chatId, "💰 Nhập *Giá tiền / Đơn giá* (VND nguyên đồng, ví dụ: 200000):", ['parse_mode' => 'Markdown']);
                 break;
@@ -732,23 +736,58 @@ class TelegramBotService
                     return;
                 }
                 $price = (float) $cleanPrice;
-                $draft['unit_price'] = $price;
-                $draft['total_amount'] = $draft['quantity'] * $price;
+                $draft['current_item']['unit_price'] = $price;
+                $qty = $draft['current_item']['quantity'] ?? 1;
+                $draft['current_item']['total_amount'] = (float) round($qty * $price);
+
+                $draft['items'] = $draft['items'] ?? [];
+                $draft['items'][] = $draft['current_item'];
+                unset($draft['current_item']);
+
+                $draft['unit_price'] = $price; // backward compatibility
+                $draft['total_amount'] = array_sum(array_column($draft['items'], 'total_amount')); // backward compatibility
+
                 $session->update(['draft_data' => $draft, 'current_step' => 6]);
 
-                $this->sendMessage($chatId, "💳 Chọn *Hình thức thanh toán*:", [
+                $totalItems = count($draft['items']);
+                $lastItem = end($draft['items']);
+                $summaryLine = sprintf("%s (SL: %d x %sđ = %sđ)", $lastItem['content'], $lastItem['quantity'], number_format($lastItem['unit_price']), number_format($lastItem['total_amount']));
+
+                $this->sendMessage($chatId, "✅ Đã thêm mục chi {$totalItems}!\n_{$summaryLine}_\n\nBạn có muốn thêm mục chi khác hay kết thúc?", [
+                    'parse_mode' => 'Markdown',
                     'reply_markup' => json_encode([
                         'inline_keyboard' => [
                             [
-                                ['text' => '💵 Tiền mặt (Quỹ chi nhánh)', 'callback_data' => 'EXP_PAY_cash'],
-                                ['text' => '🏦 Chuyển khoản ngân hàng', 'callback_data' => 'EXP_PAY_bank'],
+                                ['text' => '➕ Thêm mục chi', 'callback_data' => 'EXP_ITEM_ADD_MORE'],
+                                ['text' => '🏁 Xong, tiếp tục', 'callback_data' => 'EXP_ITEM_FINISH'],
                             ],
                         ],
                     ]),
                 ]);
                 break;
 
-            case 6: // Payment method
+            case 6: // Add more items or Payment method
+                if ($input === 'EXP_ITEM_ADD_MORE' || $input === 'ITEM_ADD_MORE' || mb_strtolower($input) === 'thêm' || mb_strtolower($input) === 'them') {
+                    $nextIndex = count($draft['items'] ?? []) + 1;
+                    $session->update(['current_step' => 3]);
+                    $this->sendMessage($chatId, "📝 *Nhập mục chi {$nextIndex}:*\nNhập *Nội dung chi*:", ['parse_mode' => 'Markdown']);
+                    return;
+                }
+
+                if ($input === 'EXP_ITEM_FINISH' || $input === 'ITEM_FINISH' || mb_strtolower($input) === 'xong' || mb_strtolower($input) === 'tiep tuc' || mb_strtolower($input) === 'tiếp tục') {
+                    $this->sendMessage($chatId, "💳 Chọn *Hình thức thanh toán*:", [
+                        'reply_markup' => json_encode([
+                            'inline_keyboard' => [
+                                [
+                                    ['text' => '💵 Tiền mặt (Quỹ chi nhánh)', 'callback_data' => 'EXP_PAY_cash'],
+                                    ['text' => '🏦 Chuyển khoản ngân hàng', 'callback_data' => 'EXP_PAY_bank'],
+                                ],
+                            ],
+                        ]),
+                    ]);
+                    return;
+                }
+
                 $cleanInput = trim($input);
                 $isCash = $cleanInput === 'EXP_PAY_cash' || mb_strtolower($cleanInput) === 'tiền mặt' || mb_strtolower($cleanInput) === 'tien mat';
                 $isBank = $cleanInput === 'EXP_PAY_bank' || mb_strtolower($cleanInput) === 'chuyển khoản' || mb_strtolower($cleanInput) === 'chuyen khoan' || mb_strtolower($cleanInput) === 'ck' || mb_strtolower($cleanInput) === 'ngân hàng';
@@ -782,10 +821,13 @@ class TelegramBotService
                     return;
                 }
 
-                $this->sendMessage($chatId, "⚠️ Vui lòng chọn *Hình thức thanh toán* từ các nút bên dưới:", [
-                    'parse_mode' => 'Markdown',
+                $this->sendMessage($chatId, "⚠️ Vui lòng chọn thao tác tiếp theo:", [
                     'reply_markup' => json_encode([
                         'inline_keyboard' => [
+                            [
+                                ['text' => '➕ Thêm mục chi', 'callback_data' => 'EXP_ITEM_ADD_MORE'],
+                                ['text' => '🏁 Xong, tiếp tục', 'callback_data' => 'EXP_ITEM_FINISH'],
+                            ],
                             [
                                 ['text' => '💵 Tiền mặt (Quỹ chi nhánh)', 'callback_data' => 'EXP_PAY_cash'],
                                 ['text' => '🏦 Chuyển khoản ngân hàng', 'callback_data' => 'EXP_PAY_bank'],
@@ -863,7 +905,34 @@ class TelegramBotService
             $draft['branch_id'] = $session->selected_branch_id;
             $draft['telegram_user_id'] = $userId;
 
-            $expense = $this->expenseService->createExpense($draft);
+            $items = $draft['items'] ?? [];
+            if (empty($items)) {
+                $items = [
+                    [
+                        'content' => $draft['content'] ?? '',
+                        'quantity' => $draft['quantity'] ?? 1,
+                        'unit_price' => $draft['unit_price'] ?? 0,
+                        'total_amount' => $draft['total_amount'] ?? 0,
+                    ],
+                ];
+            }
+
+            $createdExpenses = [];
+            foreach ($items as $item) {
+                $expenseData = [
+                    'branch_id' => $draft['branch_id'],
+                    'spender_name' => $draft['spender_name'],
+                    'content' => $item['content'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'payment_method' => $draft['payment_method'],
+                    'account_id' => $draft['account_id'] ?? null,
+                    'note' => $draft['note'] ?? null,
+                    'telegram_user_id' => $userId,
+                ];
+
+                $createdExpenses[] = $this->expenseService->createExpense($expenseData);
+            }
 
             // Reset session
             $session->update([
@@ -872,22 +941,52 @@ class TelegramBotService
                 'draft_data' => [],
             ]);
 
-            $sourceText = $expense->method === 'cash' ? "Quỹ tiền mặt ({$expense->branch->name})" :
-                "Tài khoản ({$expense->account?->name})";
+            $firstExpense = $createdExpenses[0];
+            $sourceText = $firstExpense->method === 'cash' ? "Quỹ tiền mặt ({$firstExpense->branch->name})" :
+                "Tài khoản ({$firstExpense->account?->name})";
 
             $escape = fn ($val) => str_replace(['_', '*', '`', '['], ['\\_', '\\*', '\\`', '\\['], (string) ($val ?? ''));
 
-            $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU!*\n\n" .
-                "📄 Mã chi: `{$expense->expense_code}`\n" .
-                "📅 Ngày chi: {$expense->expense_date->format('d/m/Y')}\n" .
-                "🏢 Chi nhánh: " . $escape($expense->branch->name) . "\n" .
-                "👤 Người chi: " . $escape($expense->spender_name) . "\n" .
-                "📝 Nội dung: " . $escape($expense->content) . "\n" .
-                "🔢 Số lượng: {$expense->quantity}\n" .
-                "💰 Đơn giá: " . number_format($expense->unit_price) . "đ\n" .
-                "💸 *Tổng chi:* *" . number_format($expense->total_amount) . "đ*\n" .
-                "💳 Nguồn tiền: " . $escape($sourceText) . "\n" .
-                "📌 Ghi chú: " . $escape($expense->note ?: 'Không có') . "\n";
+            if (count($createdExpenses) === 1) {
+                $expense = $firstExpense;
+                $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU!*\n\n" .
+                    "📄 Mã chi: `{$expense->expense_code}`\n" .
+                    "📅 Ngày chi: {$expense->expense_date->format('d/m/Y')}\n" .
+                    "🏢 Chi nhánh: " . $escape($expense->branch->name) . "\n" .
+                    "👤 Người chi: " . $escape($expense->spender_name) . "\n" .
+                    "📝 Nội dung: " . $escape($expense->content) . "\n" .
+                    "🔢 Số lượng: {$expense->quantity}\n" .
+                    "💰 Đơn giá: " . number_format($expense->unit_price) . "đ\n" .
+                    "💸 *Tổng chi:* *" . number_format($expense->total_amount) . "đ*\n" .
+                    "💳 Nguồn tiền: " . $escape($sourceText) . "\n" .
+                    "📌 Ghi chú: " . $escape($expense->note ?: 'Không có') . "\n";
+            } else {
+                $codes = implode(', ', array_map(fn ($e) => "`{$e->expense_code}`", $createdExpenses));
+                $totalSum = array_sum(array_map(fn ($e) => (float) $e->total_amount, $createdExpenses));
+
+                $itemRows = "";
+                foreach ($createdExpenses as $idx => $e) {
+                    $itemRows .= sprintf(
+                        "%d. %s - SL: %d x %s = %sđ (`%s`)\n",
+                        $idx + 1,
+                        $escape($e->content),
+                        $e->quantity,
+                        number_format($e->unit_price),
+                        number_format($e->total_amount),
+                        $e->expense_code
+                    );
+                }
+
+                $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU THÀNH CÔNG!*\n\n" .
+                    "📄 Mã chi: {$codes}\n" .
+                    "📅 Ngày chi: {$firstExpense->expense_date->format('d/m/Y')}\n" .
+                    "🏢 Chi nhánh: " . $escape($firstExpense->branch->name) . "\n" .
+                    "👤 Người chi: " . $escape($firstExpense->spender_name) . "\n\n" .
+                    "📦 *Chi tiết các mục chi:*\n{$itemRows}\n" .
+                    "💸 *Tổng chi cộng dồn:* *" . number_format($totalSum) . "đ*\n" .
+                    "💳 Nguồn tiền: " . $escape($sourceText) . "\n" .
+                    "📌 Ghi chú: " . $escape($firstExpense->note ?: 'Không có') . "\n";
+            }
 
             $this->sendMessage($chatId, $msg, [
                 'parse_mode' => 'Markdown',

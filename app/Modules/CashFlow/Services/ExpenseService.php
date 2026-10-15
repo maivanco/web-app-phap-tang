@@ -77,6 +77,10 @@ class ExpenseService
             $datePrefix = date('Ymd', strtotime($expenseDate));
             $expenseCount = Expense::whereDate('expense_date', $expenseDate)->count() + 1;
             $expenseCode = sprintf('CT-%s-%04d', $datePrefix, $expenseCount);
+            while (Expense::where('expense_code', $expenseCode)->exists()) {
+                $expenseCount++;
+                $expenseCode = sprintf('CT-%s-%04d', $datePrefix, $expenseCount);
+            }
 
             $note = !empty($data['note']) && $data['note'] !== '-' ? trim($data['note']) : null;
 
