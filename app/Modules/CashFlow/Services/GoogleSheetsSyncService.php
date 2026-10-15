@@ -246,7 +246,7 @@ class GoogleSheetsSyncService
         $discrepancy = $balance->closing_balance !== null ? ((float) $balance->closing_balance - $expectedBalance) : '';
 
         return [
-            'balance_id' => "BAL-{$balance->date->format('Ymd')}-{$balance->user_id}",
+            'balance_id' => "BAL-{$balance->date->format('Ymd')}-{$balance->account_id}",
             'date' => $balance->date->format('Y-m-d'),
             'staff_name' => $balance->user?->name ?? '',
             'staff_email' => $balance->user?->email ?? '',

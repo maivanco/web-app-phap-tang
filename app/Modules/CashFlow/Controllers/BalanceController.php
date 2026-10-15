@@ -172,12 +172,13 @@ class BalanceController extends Controller
             $user->update(['financial_account_id' => $accountId]);
         }
 
-        $balance = DailyStaffBalance::where('user_id', $user->id)
+        $balance = DailyStaffBalance::where('account_id', $accountId)
             ->whereDate('date', $validated['date'])
             ->first();
 
         if ($balance) {
             $balance->update([
+                'user_id' => $user->id,
                 'account_id' => $accountId,
                 'opening_balance' => $validated['opening_balance'],
                 'opened_at' => $balance->opened_at ?? now(),

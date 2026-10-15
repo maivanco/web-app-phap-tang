@@ -383,4 +383,142 @@ class BalanceManagementTest extends TestCase
             'opening_balance' => 2000000,
         ]);
     }
+
+    public function test_user_can_select_any_account_and_update_opening_and_closing_balance_via_telegram(): void
+    {
+        $botService = app(TelegramBotService::class);
+        $chatId = 888999;
+        $userId = 777888999;
+        $today = now()->toDateString();
+
+        $secondAccount = FinancialAccount::create([
+            'letter_code' => 'Z',
+            'code' => 'BANK_Z',
+            'name' => 'Techcombank Secondary',
+            'type' => 'bank',
+            'status' => 'active',
+        ]);
+
+        // 1. User opens balance menu and selects secondAccount
+        $botService->handleUpdate([
+            'callback_query' => [
+                'message' => ['chat' => ['id' => $chatId]],
+                'from' => ['id' => $userId],
+                'data' => "BAL_ACC_{$secondAccount->id}",
+            ],
+        ]);
+
+        $session = TelegramSession::where('telegram_chat_id', $chatId)->first();
+        $this->assertNotNull($session);
+        $this->assertEquals($secondAccount->id, $session->draft_data['account_id']);
+        $this->assertEquals('opening_balance', $session->current_mode);
+
+        // 2. User inputs opening balance for secondAccount
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => $chatId],
+                'from' => ['id' => $userId],
+                'text' => '3,500,000',
+            ],
+        ]);
+
+        $balance = DailyStaffBalance::where('account_id', $secondAccount->id)
+            ->whereDate('date', $today)
+            ->first();
+        $this->assertNotNull($balance);
+        $this->assertEquals(3500000, (float) $balance->opening_balance);
+
+        // 3. User switches to closing balance for secondAccount
+        $botService->handleUpdate([
+            'callback_query' => [
+                'message' => ['chat' => ['id' => $chatId]],
+                'from' => ['id' => $userId],
+                'data' => "BAL_ACTION_CLOSE_{$secondAccount->id}",
+            ],
+        ]);
+
+        $session->refresh();
+        $this->assertEquals('closing_balance', $session->current_mode);
+        $this->assertEquals($secondAccount->id, $session->draft_data['account_id']);
+
+        // 4. User inputs closing balance
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => $chatId],
+                'from' => ['id' => $userId],
+                'text' => '7tr',
+            ],
+        ]);
+
+        $balance->refresh();
+        $this->assertEquals(7000000, (float) $balance->closing_balance);
+        $this->assertEquals('closed', $balance->status);
+    }
+
+    public function test_same_user_can_update_multiple_accounts_on_the_same_day(): void
+    {
+        $botService = app(TelegramBotService::class);
+        $chatId = 999111;
+        $userId = 777888999;
+        $today = now()->toDateString();
+
+        $accountA = FinancialAccount::create([
+            'letter_code' => 'X1',
+            'code' => 'BANK_X1',
+            'name' => 'Account X1',
+            'type' => 'bank',
+            'status' => 'active',
+        ]);
+
+        $accountB = FinancialAccount::create([
+            'letter_code' => 'X2',
+            'code' => 'BANK_X2',
+            'name' => 'Account X2',
+            'type' => 'bank',
+            'status' => 'active',
+        ]);
+
+        // User updates Account A opening balance
+        $botService->handleUpdate([
+            'callback_query' => [
+                'message' => ['chat' => ['id' => $chatId]],
+                'from' => ['id' => $userId],
+                'data' => "BAL_ACC_{$accountA->id}",
+            ],
+        ]);
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => $chatId],
+                'from' => ['id' => $userId],
+                'text' => '1,000,000',
+            ],
+        ]);
+
+        // Same user updates Account B opening balance on the same day
+        $botService->handleUpdate([
+            'callback_query' => [
+                'message' => ['chat' => ['id' => $chatId]],
+                'from' => ['id' => $userId],
+                'data' => "BAL_ACC_{$accountB->id}",
+            ],
+        ]);
+        $botService->handleUpdate([
+            'message' => [
+                'chat' => ['id' => $chatId],
+                'from' => ['id' => $userId],
+                'text' => '2,000,000',
+            ],
+        ]);
+
+        // Both accounts must have their balances recorded for today
+        $balA = DailyStaffBalance::where('account_id', $accountA->id)->whereDate('date', $today)->first();
+        $balB = DailyStaffBalance::where('account_id', $accountB->id)->whereDate('date', $today)->first();
+
+        $this->assertNotNull($balA);
+        $this->assertNotNull($balB);
+        $this->assertEquals(1000000, (float) $balA->opening_balance);
+        $this->assertEquals(2000000, (float) $balB->opening_balance);
+        $this->assertEquals($this->seller->id, $balA->user_id);
+        $this->assertEquals($this->seller->id, $balB->user_id);
+    }
 }

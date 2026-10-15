@@ -101,7 +101,11 @@ class TelegramBotService
         // Handle button clicks or text input based on mode
         $input = $callbackData ?: $text;
 
-        if (in_array($input, ['MODE_ORDER', 'MODE_EXPENSE', 'MODE_CLOSING_BALANCE', 'CMD_CLOSING_BALANCE', 'CMD_REENTER_OPENING_BALANCE', 'SELECT_BRANCH'])) {
+        if (
+            in_array($input, ['MODE_ORDER', 'MODE_EXPENSE', 'MODE_CLOSING_BALANCE', 'CMD_CLOSING_BALANCE', 'CMD_REENTER_OPENING_BALANCE', 'SELECT_BRANCH', 'CMD_SELECT_BALANCE_ACCOUNT'])
+            || str_starts_with($input, 'BAL_ACC_')
+            || str_starts_with($input, 'BAL_ACTION_')
+        ) {
             $this->handleMainMenuSelection($session, $input, $chatId, $userId);
             return;
         }
@@ -160,12 +164,35 @@ class TelegramBotService
             return;
         }
 
+        if ($input === 'CMD_SELECT_BALANCE_ACCOUNT') {
+            $this->promptBalanceAccountSelection($chatId);
+            return;
+        }
+
+        if (str_starts_with($input, 'BAL_ACC_')) {
+            $accId = (int) substr($input, strlen('BAL_ACC_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId);
+            return;
+        }
+
+        if (str_starts_with($input, 'BAL_ACTION_OPEN_')) {
+            $accId = (int) substr($input, strlen('BAL_ACTION_OPEN_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'opening');
+            return;
+        }
+
+        if (str_starts_with($input, 'BAL_ACTION_CLOSE_')) {
+            $accId = (int) substr($input, strlen('BAL_ACTION_CLOSE_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+            return;
+        }
+
         if ($input === 'MODE_ORDER' || strtoupper($input) === 'A') {
             // Check if staff has an assigned bank account and whether they need to input opening balance today
             $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
             if ($user && $user->financial_account_id) {
                 $today = now()->toDateString();
-                $todayBalance = DailyStaffBalance::where('user_id', $user->id)
+                $todayBalance = DailyStaffBalance::where('account_id', $user->financial_account_id)
                     ->whereDate('date', $today)
                     ->first();
 
@@ -174,7 +201,10 @@ class TelegramBotService
                     $session->update([
                         'current_mode' => 'opening_balance',
                         'current_step' => 1,
-                        'draft_data' => ['pending_mode' => 'order'],
+                        'draft_data' => [
+                            'pending_mode' => 'order',
+                            'account_id' => $user->financial_account_id,
+                        ],
                     ]);
 
                     $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
@@ -182,6 +212,13 @@ class TelegramBotService
 
                     $this->sendMessage($chatId, "🌅 *KHỞI ĐẦU CA MỚI - NHẬP SỐ DƯ ĐẦU NGÀY*\n\nChào *{$user->name}*, đây là phiên làm việc đầu ngày của bạn.\n\nVui lòng nhập *Số dư đầu ngày* hiện tại trên ứng dụng ngân hàng:\n🏦 *{$accName}{$letterCode}*\n\n_(Ví dụ: `5,000,000` hoặc `5000000` hoặc `5tr`)_", [
                         'parse_mode' => 'Markdown',
+                        'reply_markup' => json_encode([
+                            'inline_keyboard' => [
+                                [
+                                    ['text' => '🏦 Đổi tài khoản khác', 'callback_data' => 'CMD_SELECT_BALANCE_ACCOUNT'],
+                                ],
+                            ],
+                        ]),
                     ]);
                     return;
                 }
@@ -203,70 +240,73 @@ class TelegramBotService
 
         if ($input === 'MODE_CLOSING_BALANCE' || $input === 'CMD_CLOSING_BALANCE') {
             $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
-            if (!$user || !$user->financial_account_id) {
-                $this->sendMessage($chatId, "⚠️ Bạn chưa được gán tài khoản ngân hàng nào trên hệ thống. Vui lòng liên hệ Quản lý/Admin để được phân quyền.", [
-                    'parse_mode' => 'Markdown',
+            
+            // If user has an assigned account, default to their account while offering choice of all accounts
+            if ($user && $user->financial_account_id) {
+                $today = now()->toDateString();
+                $balance = DailyStaffBalance::where('account_id', $user->financial_account_id)
+                    ->whereDate('date', $today)
+                    ->first();
+
+                $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
+                $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : "";
+
+                $currentOpeningText = ($balance && $balance->opened_at)
+                    ? number_format((float) $balance->opening_balance) . " ₫"
+                    : "Chưa ghi nhận";
+
+                $currentClosingText = ($balance && $balance->closing_balance !== null)
+                    ? number_format((float) $balance->closing_balance) . " ₫"
+                    : "Chưa chốt";
+
+                $session->update([
+                    'current_mode' => 'closing_balance',
+                    'current_step' => 1,
+                    'draft_data' => [
+                        'account_id' => $user->financial_account_id,
+                        'balance_type' => 'closing',
+                    ],
                 ]);
-                $this->sendMainMenu($chatId, $session);
+
+                $this->sendMessage($chatId, "🏁 *CHỐT SỐ DƯ CUỐI NGÀY*\n\n👤 Nhân viên: *{$user->name}*\n🏦 Tài khoản mặc định: *{$accName}{$letterCode}*\n🌅 Số dư đầu ngày: *{$currentOpeningText}*\n🏁 Số dư chốt hiện tại: *{$currentClosingText}*\n\n👉 Vui lòng nhập *Số dư thực tế* trên app ngân hàng / sổ quỹ:\n_(Ví dụ: `15,000,000` hoặc `15tr`)_\n\n_Hoặc bấm nút bên dưới để chọn tài khoản khác:_ ", [
+                    'parse_mode' => 'Markdown',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                ['text' => '🌅 Nhập lại số dư đầu ngày', 'callback_data' => "BAL_ACTION_OPEN_{$user->financial_account_id}"],
+                            ],
+                            [
+                                ['text' => '🏦 Chọn tài khoản khác từ danh sách', 'callback_data' => 'CMD_SELECT_BALANCE_ACCOUNT'],
+                            ],
+                            [
+                                ['text' => '🔙 Quay lại Menu', 'callback_data' => 'CMD_START'],
+                            ],
+                        ],
+                    ]),
+                ]);
                 return;
             }
 
-            $today = now()->toDateString();
-            $balance = DailyStaffBalance::where('user_id', $user->id)
-                ->whereDate('date', $today)
-                ->first();
-
-            $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
-            $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : "";
-
-            $currentOpeningText = ($balance && $balance->opened_at)
-                ? number_format((float) $balance->opening_balance) . " ₫"
-                : "Chưa ghi nhận";
-
-            $currentClosingText = ($balance && $balance->closing_balance !== null)
-                ? number_format((float) $balance->closing_balance) . " ₫"
-                : "Chưa chốt";
-
+            // If user has no assigned account, directly prompt account selection from list
             $session->update([
                 'current_mode' => 'closing_balance',
                 'current_step' => 1,
                 'draft_data' => [],
             ]);
-
-            $this->sendMessage($chatId, "🏁 *CHỐT SỐ DƯ CUỐI NGÀY*\n\n👤 Nhân viên: *{$user->name}*\n🏦 Tài khoản: *{$accName}{$letterCode}*\n🌅 Số dư đầu ngày: *{$currentOpeningText}*\n🏁 Số dư chốt hiện tại: *{$currentClosingText}*\n\n👉 Vui lòng nhập *Số dư thực tế* trên app ngân hàng tại thời điểm kết ca:\n_(Ví dụ: `15,000,000` hoặc `15tr`)_", [
-                'parse_mode' => 'Markdown',
-                'reply_markup' => json_encode([
-                    'inline_keyboard' => [
-                        [
-                            ['text' => '🌅 Nhập lại số dư đầu ngày', 'callback_data' => 'CMD_REENTER_OPENING_BALANCE'],
-                        ],
-                        [
-                            ['text' => '🔙 Quay lại Menu', 'callback_data' => 'CMD_START'],
-                        ],
-                    ],
-                ]),
-            ]);
+            $this->promptBalanceAccountSelection($chatId);
             return;
         }
 
         if ($input === 'CMD_REENTER_OPENING_BALANCE') {
             $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
-            $accName = $user?->financialAccount?->name ?? 'Tài khoản ngân hàng';
+            $accountId = $session->draft_data['account_id'] ?? $user?->financial_account_id;
 
-            $session->update([
-                'current_mode' => 'opening_balance',
-                'current_step' => 1,
-                'draft_data' => ['pending_mode' => 'main_menu'],
-            ]);
+            if ($accountId) {
+                $this->selectBalanceAccount($session, $accountId, $chatId, $userId, 'opening');
+                return;
+            }
 
-            $this->sendMessage($chatId, "🌅 *CẬP NHẬT LẠI SỐ DƯ ĐẦU NGÀY*\n\n🏦 Tài khoản: *{$accName}*\n\n👉 Vui lòng nhập số dư đầu ngày mới:\n_(Ví dụ: `5,000,000` hoặc `5tr`)_", [
-                'parse_mode' => 'Markdown',
-                'reply_markup' => json_encode([
-                    'inline_keyboard' => [
-                        [['text' => '🔙 Hủy & Về Menu', 'callback_data' => 'CMD_START']],
-                    ],
-                ]),
-            ]);
+            $this->promptBalanceAccountSelection($chatId, "🌅 Vui lòng chọn tài khoản để nhập số dư đầu ngày:");
             return;
         }
 
@@ -286,6 +326,117 @@ class TelegramBotService
         }
 
         $this->sendMainMenu($chatId, $session);
+    }
+
+    protected function promptBalanceAccountSelection(int $chatId, ?string $prefix = null): void
+    {
+        $accounts = FinancialAccount::where('status', 'active')
+            ->orderByRaw("CASE WHEN type = 'bank' THEN 1 WHEN type = 'cash' THEN 2 ELSE 3 END")
+            ->orderBy('letter_code')
+            ->orderBy('name')
+            ->get();
+
+        $buttons = [];
+        foreach ($accounts as $acc) {
+            $typeIcon = match ($acc->type) {
+                'cash' => '💵',
+                'card_gateway' => '💳',
+                default => '🏦',
+            };
+            $letter = $acc->letter_code ? "{$acc->letter_code}. " : "";
+            $buttons[] = [['text' => "{$typeIcon} {$letter}{$acc->name}", 'callback_data' => "BAL_ACC_{$acc->id}"]];
+        }
+        $buttons[] = [['text' => '🔙 Quay lại Menu', 'callback_data' => 'CMD_START']];
+
+        $msg = ($prefix ? "{$prefix}\n\n" : "") .
+            "🏦 *CHỌN TÀI KHOẢN CẦN NHẬP / CHỐT SỐ DƯ:*\n\n" .
+            "Vui lòng chọn tài khoản từ danh sách dưới đây:";
+
+        $this->sendMessage($chatId, $msg, [
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
+        ]);
+    }
+
+    protected function selectBalanceAccount(TelegramSession $session, int $accountId, int $chatId, int $userId, ?string $forceType = null): void
+    {
+        $account = FinancialAccount::find($accountId);
+        if (!$account) {
+            $this->sendMessage($chatId, "⚠️ Không tìm thấy tài khoản ngân hàng.");
+            $this->promptBalanceAccountSelection($chatId);
+            return;
+        }
+
+        $user = User::where('telegram_user_id', $userId)->first();
+        $today = now()->toDateString();
+        $balance = DailyStaffBalance::where('account_id', $account->id)
+            ->whereDate('date', $today)
+            ->first();
+
+        // Determine if opening or closing
+        $type = $forceType;
+        if (!$type) {
+            if (!$balance || $balance->opened_at === null) {
+                $type = 'opening';
+            } else {
+                $type = 'closing';
+            }
+        }
+
+        $session->update([
+            'current_mode' => $type === 'opening' ? 'opening_balance' : 'closing_balance',
+            'current_step' => 1,
+            'draft_data' => array_merge($session->draft_data ?? [], [
+                'account_id' => $account->id,
+                'balance_type' => $type,
+            ]),
+        ]);
+
+        $accName = $account->name;
+        $letterCode = $account->letter_code ? " ({$account->letter_code})" : "";
+        $todayFormatted = now()->format('d/m/Y');
+
+        $openingText = ($balance && $balance->opened_at)
+            ? number_format((float) $balance->opening_balance) . " ₫"
+            : "Chưa ghi nhận";
+
+        $closingText = ($balance && $balance->closing_balance !== null)
+            ? number_format((float) $balance->closing_balance) . " ₫"
+            : "Chưa chốt";
+
+        $userName = $user ? $user->name : "Nhân viên";
+
+        if ($type === 'opening') {
+            $this->sendMessage($chatId, "🌅 *NHẬP SỐ DƯ ĐẦU NGÀY*\n\n🏦 Tài khoản: *{$accName}{$letterCode}*\n👤 Người cập nhật: *{$userName}*\n📅 Ngày: *{$todayFormatted}*\n🌅 Số dư đầu ngày hiện tại: *{$openingText}*\n\n👉 Vui lòng nhập *Số dư đầu ngày* trên ứng dụng ngân hàng / sổ quỹ:\n_(Ví dụ: `5,000,000` hoặc `5tr`)_", [
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '🏁 Chuyển sang chốt số dư ca', 'callback_data' => "BAL_ACTION_CLOSE_{$account->id}"],
+                        ],
+                        [
+                            ['text' => '🔄 Chọn tài khoản khác', 'callback_data' => 'CMD_SELECT_BALANCE_ACCOUNT'],
+                            ['text' => '🔙 Về Menu', 'callback_data' => 'CMD_START'],
+                        ],
+                    ],
+                ]),
+            ]);
+        } else {
+            $this->sendMessage($chatId, "🏁 *CHỐT SỐ DƯ CUỐI NGÀY*\n\n🏦 Tài khoản: *{$accName}{$letterCode}*\n👤 Người cập nhật: *{$userName}*\n📅 Ngày: *{$todayFormatted}*\n🌅 Số dư đầu ngày: *{$openingText}*\n🏁 Số dư chốt hiện tại: *{$closingText}*\n\n👉 Vui lòng nhập *Số dư thực tế* trên app ngân hàng / sổ quỹ tại thời điểm kết ca:\n_(Ví dụ: `15,000,000` hoặc `15tr`)_", [
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '🌅 Nhập lại số dư đầu ngày', 'callback_data' => "BAL_ACTION_OPEN_{$account->id}"],
+                        ],
+                        [
+                            ['text' => '🔄 Chọn tài khoản khác', 'callback_data' => 'CMD_SELECT_BALANCE_ACCOUNT'],
+                            ['text' => '🔙 Về Menu', 'callback_data' => 'CMD_START'],
+                        ],
+                    ],
+                ]),
+            ]);
+        }
     }
 
     protected function promptBranchSelection(int $chatId): void
@@ -1007,6 +1158,38 @@ class TelegramBotService
      */
     protected function handleOpeningBalanceFlow(TelegramSession $session, string $input, int $chatId, int $userId): void
     {
+        // First check if user clicked an action button
+        if (str_starts_with($input, 'BAL_ACC_')) {
+            $accId = (int) substr($input, strlen('BAL_ACC_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'opening');
+            return;
+        }
+
+        if (str_starts_with($input, 'BAL_ACTION_CLOSE_')) {
+            $accId = (int) substr($input, strlen('BAL_ACTION_CLOSE_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+            return;
+        }
+
+        if ($input === 'CMD_SELECT_BALANCE_ACCOUNT') {
+            $this->promptBalanceAccountSelection($chatId);
+            return;
+        }
+
+        // Check if user entered an account letter or code instead of amount
+        $trimmed = trim(strtoupper($input));
+        $matchedAccount = FinancialAccount::where('status', 'active')
+            ->where(function ($q) use ($trimmed, $input) {
+                $q->where('letter_code', $trimmed)
+                    ->orWhere('code', $trimmed);
+            })
+            ->first();
+
+        if ($matchedAccount) {
+            $this->selectBalanceAccount($session, $matchedAccount->id, $chatId, $userId, 'opening');
+            return;
+        }
+
         $amount = $this->parseAmount($input);
         if ($amount === null) {
             $this->sendMessage($chatId, "⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `5,000,000` hoặc `5tr`):", [
@@ -1016,30 +1199,33 @@ class TelegramBotService
         }
 
         $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
-        if (!$user || !$user->financial_account_id) {
-            $this->sendMessage($chatId, "⚠️ Tài khoản của bạn chưa được liên kết với tài khoản ngân hàng nào. Vui lòng liên hệ Quản lý/Admin.");
-            $this->sendMainMenu($chatId, $session);
+        $accountId = $session->draft_data['account_id'] ?? $user?->financial_account_id;
+        $account = $accountId ? FinancialAccount::find($accountId) : null;
+
+        if (!$account) {
+            $this->sendMessage($chatId, "⚠️ Vui lòng chọn tài khoản từ danh sách dưới đây trước khi nhập số tiền:");
+            $this->promptBalanceAccountSelection($chatId);
             return;
         }
 
         $today = now()->toDateString();
 
-        // Update or create today's balance (allows overwrite if within same day)
-        $balance = DailyStaffBalance::where('user_id', $user->id)
+        // Update or create today's balance for this account
+        $balance = DailyStaffBalance::where('account_id', $account->id)
             ->whereDate('date', $today)
             ->first();
 
         if ($balance) {
             $balance->update([
-                'account_id' => $user->financial_account_id,
+                'user_id' => $user?->id ?? $balance->user_id,
                 'opening_balance' => $amount,
                 'opened_at' => now(),
             ]);
         } else {
             $balance = DailyStaffBalance::create([
                 'date' => $today,
-                'user_id' => $user->id,
-                'account_id' => $user->financial_account_id,
+                'user_id' => $user ? $user->id : 1,
+                'account_id' => $account->id,
                 'opening_balance' => $amount,
                 'opened_at' => now(),
             ]);
@@ -1052,14 +1238,16 @@ class TelegramBotService
             Log::warning("Failed to sync opening balance to Google Sheets: " . $e->getMessage());
         }
 
-        $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
+        $accName = $account->name;
+        $letterCode = $account->letter_code ? " ({$account->letter_code})" : "";
         $formatted = number_format($amount);
-        $this->sendMessage($chatId, "✅ Đã lưu *Số dư đầu ngày*: *{$formatted} ₫*\n🏦 Tài khoản: *{$accName}*\n\nBắt đầu tạo đơn hàng...", [
-            'parse_mode' => 'Markdown',
-        ]);
+        $pending = $session->draft_data['pending_mode'] ?? null;
 
-        $pending = $session->draft_data['pending_mode'] ?? 'order';
         if ($pending === 'order') {
+            $this->sendMessage($chatId, "✅ Đã lưu *Số dư đầu ngày*: *{$formatted} ₫*\n🏦 Tài khoản: *{$accName}{$letterCode}*\n\nBắt đầu tạo đơn hàng...", [
+                'parse_mode' => 'Markdown',
+            ]);
+
             if (!$session->selected_branch_id) {
                 $session->update(['current_mode' => 'order', 'current_step' => 1, 'draft_data' => []]);
                 $this->promptBranchSelection($chatId);
@@ -1079,7 +1267,21 @@ class TelegramBotService
             'current_step' => 0,
             'draft_data' => [],
         ]);
-        $this->sendMainMenu($chatId, $session);
+
+        $this->sendMessage($chatId, "✅ Đã lưu *Số dư đầu ngày*: *{$formatted} ₫*\n🏦 Tài khoản: *{$accName}{$letterCode}*", [
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        ['text' => '🏁 Chốt số dư tài khoản này', 'callback_data' => "BAL_ACTION_CLOSE_{$account->id}"],
+                    ],
+                    [
+                        ['text' => '🏦 Nhập số dư tài khoản khác', 'callback_data' => 'CMD_SELECT_BALANCE_ACCOUNT'],
+                        ['text' => '🏠 Menu chính', 'callback_data' => 'CMD_START'],
+                    ],
+                ],
+            ]),
+        ]);
     }
 
     /**
@@ -1087,6 +1289,44 @@ class TelegramBotService
      */
     protected function handleClosingBalanceFlow(TelegramSession $session, string $input, int $chatId, int $userId): void
     {
+        // First check if user clicked an action button
+        if (str_starts_with($input, 'BAL_ACC_')) {
+            $accId = (int) substr($input, strlen('BAL_ACC_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+            return;
+        }
+
+        if (str_starts_with($input, 'BAL_ACTION_OPEN_')) {
+            $accId = (int) substr($input, strlen('BAL_ACTION_OPEN_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'opening');
+            return;
+        }
+
+        if (str_starts_with($input, 'BAL_ACTION_CLOSE_')) {
+            $accId = (int) substr($input, strlen('BAL_ACTION_CLOSE_'));
+            $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+            return;
+        }
+
+        if ($input === 'CMD_SELECT_BALANCE_ACCOUNT') {
+            $this->promptBalanceAccountSelection($chatId);
+            return;
+        }
+
+        // Check if user entered an account letter or code instead of amount
+        $trimmed = trim(strtoupper($input));
+        $matchedAccount = FinancialAccount::where('status', 'active')
+            ->where(function ($q) use ($trimmed, $input) {
+                $q->where('letter_code', $trimmed)
+                    ->orWhere('code', $trimmed);
+            })
+            ->first();
+
+        if ($matchedAccount) {
+            $this->selectBalanceAccount($session, $matchedAccount->id, $chatId, $userId, 'closing');
+            return;
+        }
+
         $amount = $this->parseAmount($input);
         if ($amount === null) {
             $this->sendMessage($chatId, "⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `15,000,000` hoặc `15tr`):", [
@@ -1096,22 +1336,25 @@ class TelegramBotService
         }
 
         $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
-        if (!$user || !$user->financial_account_id) {
-            $this->sendMessage($chatId, "⚠️ Bạn chưa được gán tài khoản ngân hàng nào.");
-            $this->sendMainMenu($chatId, $session);
+        $accountId = $session->draft_data['account_id'] ?? $user?->financial_account_id;
+        $account = $accountId ? FinancialAccount::find($accountId) : null;
+
+        if (!$account) {
+            $this->sendMessage($chatId, "⚠️ Vui lòng chọn tài khoản từ danh sách dưới đây trước khi nhập số tiền:");
+            $this->promptBalanceAccountSelection($chatId);
             return;
         }
 
         $today = now()->toDateString();
 
         // Update or create daily balance (allows overwrite if within same day)
-        $balance = DailyStaffBalance::where('user_id', $user->id)
+        $balance = DailyStaffBalance::where('account_id', $account->id)
             ->whereDate('date', $today)
             ->first();
 
         if ($balance) {
             $balance->update([
-                'account_id' => $user->financial_account_id,
+                'user_id' => $user?->id ?? $balance->user_id,
                 'closing_balance' => $amount,
                 'closed_at' => now(),
                 'status' => 'closed',
@@ -1119,8 +1362,8 @@ class TelegramBotService
         } else {
             $balance = DailyStaffBalance::create([
                 'date' => $today,
-                'user_id' => $user->id,
-                'account_id' => $user->financial_account_id,
+                'user_id' => $user ? $user->id : 1,
+                'account_id' => $account->id,
                 'opening_balance' => 0,
                 'opened_at' => now(),
                 'closing_balance' => $amount,
@@ -1171,12 +1414,14 @@ class TelegramBotService
                 ? "🟢 Thừa: +" . number_format($discrepancy) . " ₫"
                 : "🔴 Thiếu: " . number_format($discrepancy) . " ₫");
 
-        $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
+        $accName = $account->name;
+        $letterCode = $account->letter_code ? " ({$account->letter_code})" : "";
+        $userName = $user ? $user->name : "Nhân viên";
 
         $summary = "🏁 *XÁC NHẬN CHỐT SỐ DƯ CA LÀM VIỆC*\n\n" .
             "📅 Ngày: `" . now()->format('d/m/Y') . "`\n" .
-            "👤 Nhân viên: *{$user->name}*\n" .
-            "🏦 Tài khoản: *{$accName}*\n" .
+            "👤 Nhân viên: *{$userName}*\n" .
+            "🏦 Tài khoản: *{$accName}{$letterCode}*\n" .
             "-----------------------------\n" .
             "🌅 Số dư đầu ngày: *" . number_format((float) $balance->opening_balance) . " ₫*\n" .
             "📥 Tiền thu đơn hàng: *+" . number_format($totalIn) . " ₫*\n" .
@@ -1197,7 +1442,10 @@ class TelegramBotService
             'reply_markup' => json_encode([
                 'inline_keyboard' => [
                     [
-                        ['text' => '🔄 Chốt lại số dư', 'callback_data' => 'MODE_CLOSING_BALANCE'],
+                        ['text' => '🔄 Chốt lại tài khoản này', 'callback_data' => "BAL_ACTION_CLOSE_{$account->id}"],
+                    ],
+                    [
+                        ['text' => '🏦 Nhập số dư tài khoản khác', 'callback_data' => 'CMD_SELECT_BALANCE_ACCOUNT'],
                         ['text' => '🏠 Menu chính', 'callback_data' => 'CMD_START'],
                     ],
                 ],
