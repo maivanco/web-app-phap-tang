@@ -12,10 +12,13 @@ use App\Modules\CashFlow\Models\Order;
 use App\Modules\CashFlow\Services\GoogleSheetsSyncService;
 use App\Modules\CashFlow\Services\OrderCalculationService;
 use App\Modules\CashFlow\Services\OrderService;
+use App\Services\ExcelExportService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OrderController extends Controller
 {
@@ -25,7 +28,7 @@ class OrderController extends Controller
         protected GoogleSheetsSyncService $sheetsSyncService
     ) {}
 
-    public function index(Request $request): Response
+    public function buildFilterQuery(Request $request): Builder
     {
         $query = Order::with(['branch', 'customerSource', 'payment.account', 'items.brand', 'creator', 'consultant'])
             ->orderByDesc('id');
@@ -41,6 +44,13 @@ class OrderController extends Controller
             });
         }
 
+        if ($request->filled('product_name')) {
+            $productName = trim($request->input('product_name'));
+            $query->whereHas('items', function ($itemQuery) use ($productName) {
+                $itemQuery->where('product_name', 'like', "%{$productName}%");
+            });
+        }
+
         if ($request->filled('branch_id')) {
             $query->where('branch_id', $request->input('branch_id'));
         }
@@ -51,15 +61,157 @@ class OrderController extends Controller
 
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $query->whereBetween('sale_date', [$request->input('start_date'), $request->input('end_date')]);
+        } elseif ($request->filled('start_date')) {
+            $query->where('sale_date', '>=', $request->input('start_date'));
+        } elseif ($request->filled('end_date')) {
+            $query->where('sale_date', '<=', $request->input('end_date'));
         }
 
+        return $query;
+    }
+
+    public function index(Request $request): Response
+    {
+        $query = $this->buildFilterQuery($request);
         $orders = $query->paginate(15)->withQueryString();
 
         return Inertia::render('Admin/Modules/CashFlow/Orders/Index', [
             'orders' => $orders,
-            'filters' => $request->only(['search', 'branch_id', 'status', 'start_date', 'end_date']),
+            'filters' => $request->only(['search', 'product_name', 'branch_id', 'status', 'start_date', 'end_date']),
             'branches' => Branch::where('status', 'active')->orderBy('code')->get(),
         ]);
+    }
+
+    public function export(Request $request): StreamedResponse
+    {
+        $query = $this->buildFilterQuery($request);
+
+        $filename = 'Danh_sach_don_hang_' . now()->format('Ymd_His') . '.xlsx';
+
+        return ExcelExportService::make()
+            ->title('DANH SÁCH ĐƠN HÀNG - PHÁP TẠNG')
+            ->sheetName('Đơn hàng')
+            ->columns([
+                [
+                    'header' => 'Mã đơn',
+                    'key' => 'order_code',
+                    'format' => 'string',
+                    'width' => 18,
+                ],
+                [
+                    'header' => 'Ngày bán',
+                    'key' => 'sale_date',
+                    'format' => 'date',
+                    'width' => 14,
+                ],
+                [
+                    'header' => 'Chi nhánh',
+                    'key' => fn($order) => $order->branch ? "{$order->branch->code}. {$order->branch->name}" : '',
+                    'width' => 20,
+                ],
+                [
+                    'header' => 'Khách hàng',
+                    'key' => 'customer_name',
+                    'width' => 22,
+                ],
+                [
+                    'header' => 'Số điện thoại',
+                    'key' => 'customer_phone',
+                    'format' => 'string',
+                    'width' => 16,
+                ],
+                [
+                    'header' => 'Giới tính',
+                    'key' => 'customer_gender',
+                    'align' => 'center',
+                    'width' => 12,
+                ],
+                [
+                    'header' => 'Nguồn khách',
+                    'key' => fn($order) => $order->customerSource?->name ?? '',
+                    'width' => 16,
+                ],
+                [
+                    'header' => 'Tư vấn viên',
+                    'key' => fn($order) => $order->consultant?->name ?: ($order->consultant_name ?? ''),
+                    'width' => 20,
+                ],
+                [
+                    'header' => 'Sản phẩm',
+                    'key' => fn($order) => $order->items->map(fn($item) => "{$item->product_name} (x{$item->quantity})")->implode(', '),
+                    'wrap' => true,
+                    'width' => 35,
+                ],
+                [
+                    'header' => 'Tổng trước giảm',
+                    'key' => 'gross_amount',
+                    'format' => 'currency',
+                    'width' => 18,
+                ],
+                [
+                    'header' => 'Mã giảm',
+                    'key' => 'discount_code',
+                    'align' => 'center',
+                    'width' => 10,
+                ],
+                [
+                    'header' => 'Tiền giảm giá',
+                    'key' => 'discount_amount',
+                    'format' => 'currency',
+                    'width' => 16,
+                ],
+                [
+                    'header' => 'Doanh thu sau giảm',
+                    'key' => 'net_revenue',
+                    'format' => 'currency',
+                    'width' => 20,
+                ],
+                [
+                    'header' => 'Hình thức TT',
+                    'key' => fn($order) => match ($order->payment?->method) {
+                        'cash' => 'Tiền mặt',
+                        'bank_transfer' => 'Chuyển khoản' . ($order->payment?->account ? " ({$order->payment->account->letter_code})" : ''),
+                        'card_swipe' => 'Quẹt thẻ' . ($order->payment?->card_swipe_date ? " ({$order->payment->card_swipe_date->format('d/m')})" : ''),
+                        'unpaid' => 'Chưa thanh toán',
+                        default => $order->payment?->method ?? '',
+                    },
+                    'width' => 22,
+                ],
+                [
+                    'header' => 'Trạng thái TT',
+                    'key' => fn($order) => match ($order->payment?->status) {
+                        'completed' => 'Đã thu tiền',
+                        'pending_settlement' => 'Chờ quyết toán',
+                        'reconciled' => 'Đã đối soát',
+                        default => $order->payment?->status ?? '',
+                    },
+                    'align' => 'center',
+                    'width' => 16,
+                ],
+                [
+                    'header' => 'Trạng thái đơn',
+                    'key' => fn($order) => match ($order->status) {
+                        'completed' => 'Hoàn thành',
+                        'cancelled' => 'Đã hủy',
+                        default => $order->status,
+                    },
+                    'align' => 'center',
+                    'width' => 16,
+                ],
+                [
+                    'header' => 'Ghi chú',
+                    'key' => 'note',
+                    'wrap' => true,
+                    'width' => 25,
+                ],
+                [
+                    'header' => 'Người tạo',
+                    'key' => fn($order) => $order->creator?->name ?? '',
+                    'width' => 18,
+                ],
+            ])
+            ->fromQuery($query)
+            ->download($filename);
     }
 
     public function create(Request $request): Response

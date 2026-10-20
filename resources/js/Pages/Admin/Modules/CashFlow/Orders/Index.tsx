@@ -54,6 +54,7 @@ interface OrdersIndexProps extends PageProps {
     };
     filters: {
         search?: string;
+        product_name?: string;
         branch_id?: string;
         status?: string;
         start_date?: string;
@@ -67,6 +68,7 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
     const { flash } = usePage<PageProps<{ flash?: { success?: string; error?: string } }>>().props;
 
     const [search, setSearch] = useState(filters.search || '');
+    const [productName, setProductName] = useState(filters.product_name || '');
     const [branchId, setBranchId] = useState(filters.branch_id || '');
     const [status, setStatus] = useState(filters.status || '');
     const [startDate, setStartDate] = useState(filters.start_date || '');
@@ -97,6 +99,7 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
             route('admin.cashflow.orders.index'),
             {
                 search: search || undefined,
+                product_name: productName || undefined,
                 branch_id: branchId || undefined,
                 status: status || undefined,
                 start_date: startDate || undefined,
@@ -105,6 +108,27 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
             { preserveState: true }
         );
     };
+
+    const handleReset = () => {
+        setSearch('');
+        setProductName('');
+        setBranchId('');
+        setStatus('');
+        setStartDate('');
+        setEndDate('');
+        router.get(route('admin.cashflow.orders.index'), {}, { preserveState: true });
+    };
+
+    const hasFilter = Boolean(search || productName || branchId || status || startDate || endDate);
+
+    const exportUrl = route('admin.cashflow.orders.export', {
+        search: search || undefined,
+        product_name: productName || undefined,
+        branch_id: branchId || undefined,
+        status: status || undefined,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+    });
 
     const handleConfirmCancel = () => {
         if (!cancellingOrder || !cancelReason.trim()) return;
@@ -140,12 +164,21 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                             Tra cứu, xem chi tiết và đối soát các đơn hàng đã ghi
                         </p>
                     </div>
-                    <Link
-                        href={route('admin.cashflow.orders.create')}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
-                    >
-                        <span>➕</span> Nhập đơn mới
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        <a
+                            href={exportUrl}
+                            className="bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 hover:border-emerald-400 px-3.5 py-2 rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+                            title="Xuất Excel theo trạng thái lọc hiện tại"
+                        >
+                            <span>📊</span> Xuất Excel
+                        </a>
+                        <Link
+                            href={route('admin.cashflow.orders.create')}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+                        >
+                            <span>➕</span> Nhập đơn mới
+                        </Link>
+                    </div>
                 </div>
             }
         >
@@ -173,7 +206,7 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                 {/* Search & Filters */}
                 <form
                     onSubmit={handleSearch}
-                    className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs"
+                    className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs"
                 >
                     <div className="lg:col-span-2">
                         <input
@@ -181,7 +214,17 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                             placeholder="🔍 Tìm mã đơn, khách hàng, SĐT, TVV..."
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="w-full rounded-md border-gray-300 text-xs px-3 py-2 shadow-sm"
+                            className="w-full rounded-md border-gray-300 text-xs px-3 py-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        />
+                    </div>
+
+                    <div className="lg:col-span-2">
+                        <input
+                            type="text"
+                            placeholder="📦 Tìm theo tên sản phẩm..."
+                            value={productName}
+                            onChange={(e) => setProductName(e.target.value)}
+                            className="w-full rounded-md border-gray-300 text-xs px-3 py-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                         />
                     </div>
 
@@ -189,7 +232,7 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                         <select
                             value={branchId}
                             onChange={(e) => setBranchId(e.target.value)}
-                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm"
+                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                         >
                             <option value="">Tất cả chi nhánh</option>
                             {branches.map((b) => (
@@ -204,7 +247,7 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                         <select
                             value={status}
                             onChange={(e) => setStatus(e.target.value)}
-                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm"
+                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                         >
                             <option value="">Tất cả trạng thái</option>
                             <option value="completed">Đã hoàn thành</option>
@@ -217,23 +260,46 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                             type="date"
                             value={startDate}
                             onChange={(e) => setStartDate(e.target.value)}
-                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm"
+                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            title="Từ ngày"
                         />
                     </div>
 
-                    <div className="flex gap-2">
+                    <div>
                         <input
                             type="date"
                             value={endDate}
                             onChange={(e) => setEndDate(e.target.value)}
-                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm"
+                            className="w-full rounded-md border-gray-300 text-xs px-2.5 py-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            title="Đến ngày"
                         />
-                        <button
-                            type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md font-medium transition"
+                    </div>
+
+                    <div className="lg:col-span-6 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="submit"
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md font-medium transition shadow-sm flex items-center gap-1.5"
+                            >
+                                <span>🔍</span> Lọc dữ liệu
+                            </button>
+                            {hasFilter && (
+                                <button
+                                    type="button"
+                                    onClick={handleReset}
+                                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-md font-medium transition flex items-center gap-1"
+                                >
+                                    <span>✕</span> Xóa lọc
+                                </button>
+                            )}
+                        </div>
+                        <a
+                            href={exportUrl}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-md font-medium transition shadow-sm flex items-center gap-1.5 text-xs ml-auto"
+                            title="Xuất toàn bộ đơn hàng theo bộ lọc ra file Excel (.xlsx)"
                         >
-                            Lọc
-                        </button>
+                            <span>📊</span> Xuất Excel (.xlsx)
+                        </a>
                     </div>
                 </form>
 
@@ -273,6 +339,14 @@ export default function OrdersIndex({ auth, orders, filters, branches }: OrdersI
                                                     </span>
                                                 )}
                                             </div>
+                                            {order.items && order.items.length > 0 && (
+                                                <div
+                                                    className="text-[11px] text-gray-500 mt-1 max-w-[200px] truncate"
+                                                    title={order.items.map((i) => `${i.product_name} (x${i.quantity})`).join(', ')}
+                                                >
+                                                    📦 {order.items.map((i) => i.product_name).join(', ')}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-4 py-3 text-gray-700">
                                             {order.branch?.code}. {order.branch?.name}

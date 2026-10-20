@@ -28,6 +28,7 @@ Route::middleware(['auth'])->prefix('admin/cashflow')->name('admin.cashflow.')->
 
     // Sales Orders
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
+    Route::get('/orders/export', [OrderController::class, 'export'])->name('orders.export');
     Route::get('/orders/create', [OrderController::class, 'create'])->name('orders.create');
     Route::post('/orders', [OrderController::class, 'store'])->name('orders.store');
     Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');

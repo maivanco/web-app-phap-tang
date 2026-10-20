@@ -28,3 +28,9 @@
    - **CRITICAL**: Always write all code, identifiers, tests, documentation, and inline comments in **English**.
    - Even if reference materials, specifications, or documents provided or read are in another language (e.g., Vietnamese), all source code, comments, and commit messages must strictly be written in English.
 
+7. **Excel Export Engine (`ExcelExportService`)**:
+   - For exporting data to XLSX format across any module, use `App\Services\ExcelExportService`.
+   - Supports streaming, chunked Eloquent queries, cell formatting (currency, text with leading zeroes, date), auto-filter, zebra striping, and column auto-sizing.
+   - For detailed usage patterns, refer to `.agents/skills/excel-exporter/SKILL.md`.
+
+

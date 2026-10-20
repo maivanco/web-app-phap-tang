@@ -1311,6 +1311,71 @@ class CashFlowTest extends TestCase
         $this->assertEquals(0, $session->current_step);
         $this->assertEmpty($session->draft_data);
     }
+
+    public function test_orders_index_can_filter_by_product_name(): void
+    {
+        $orderService = app(OrderService::class);
+
+        $order1 = $orderService->createOrder([
+            'branch_id' => $this->branchA->id,
+            'consultant_name' => 'Nguyễn Văn A',
+            'customer_name' => 'Khách Hàng 1',
+            'customer_phone' => '0900000001',
+            'customer_gender' => 'Nữ',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'items' => [
+                ['product_name' => 'Trầm Hương Tự Nhiên VIP', 'brand_id' => $this->brandPhapTang->id, 'quantity' => 1, 'unit_price' => 1000000],
+            ],
+            'payment_method' => 'cash',
+        ]);
+
+        $order2 = $orderService->createOrder([
+            'branch_id' => $this->branchA->id,
+            'consultant_name' => 'Nguyễn Văn B',
+            'customer_name' => 'Khách Hàng 2',
+            'customer_phone' => '0900000002',
+            'customer_gender' => 'Nam',
+            'customer_source_id' => $this->sourceTiktok->id,
+            'items' => [
+                ['product_name' => 'Ngọc Bích Sơn Thủy', 'brand_id' => $this->brandMjade->id, 'quantity' => 1, 'unit_price' => 2000000],
+            ],
+            'payment_method' => 'cash',
+        ]);
+
+        // Filter by 'Trầm Hương'
+        $response = $this->actingAs($this->manager)->get(route('admin.cashflow.orders.index', [
+            'product_name' => 'Trầm Hương',
+        ]));
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Admin/Modules/CashFlow/Orders/Index')
+            ->has('orders.data', 1)
+            ->where('orders.data.0.id', $order1->id)
+            ->where('filters.product_name', 'Trầm Hương')
+        );
+
+        // Filter by 'Ngọc Bích'
+        $response = $this->actingAs($this->manager)->get(route('admin.cashflow.orders.index', [
+            'product_name' => 'Ngọc Bích',
+        ]));
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Admin/Modules/CashFlow/Orders/Index')
+            ->has('orders.data', 1)
+            ->where('orders.data.0.id', $order2->id)
+            ->where('filters.product_name', 'Ngọc Bích')
+        );
+
+        // Filter by non-existent product
+        $response = $this->actingAs($this->manager)->get(route('admin.cashflow.orders.index', [
+            'product_name' => 'KhongTonTai',
+        ]));
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Admin/Modules/CashFlow/Orders/Index')
+            ->has('orders.data', 0)
+        );
+    }
 }
 
 
