@@ -13,5 +13,10 @@ export type PageProps<T extends Record<string, unknown> = Record<string, unknown
     auth: {
         user: User;
     };
+    flash?: {
+        success?: string;
+        error?: string;
+    };
     translations?: Record<string, any>;
 };
+

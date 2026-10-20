@@ -77,6 +77,22 @@ export default function Sidebar() {
             ],
         },
         {
+            label: 'Công Nợ',
+            icon: '📑',
+            children: [
+                {
+                    label: 'Công nợ phải thu',
+                    icon: '📥',
+                    href: admin_url('payables-receivables/receivables'),
+                },
+                {
+                    label: 'Công nợ phải trả',
+                    icon: '📤',
+                    href: admin_url('payables-receivables/payables'),
+                },
+            ],
+        },
+        {
             label: 'Sự kiện & Vé QR',
             icon: '🎫',
             children: [

@@ -61,3 +61,9 @@ if (file_exists(app_path('Modules/GeneralSettings/routes.php'))) {
     require app_path('Modules/GeneralSettings/routes.php');
 }
 
+// Load PayablesReceivables Module routes
+if (file_exists(app_path('Modules/PayablesReceivables/routes.php'))) {
+    require app_path('Modules/PayablesReceivables/routes.php');
+}
+
+
