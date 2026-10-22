@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 
 // Public Telegram Webhook Endpoint
 Route::post('/api/telegram/webhook', [TelegramWebhookController::class, 'handle'])
-    ->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class]);
+    ->withoutMiddleware([\App\Http\Middleware\PreventRequestForgery::class, \App\Http\Middleware\VerifyCsrfToken::class]);
 
 // Authenticated CashFlow routes
 Route::middleware(['auth'])->prefix('admin/cashflow')->name('admin.cashflow.')->group(function () {
