@@ -31,6 +31,22 @@ export default function Sidebar() {
             ],
         },
         {
+            label: 'Phiếu giao nhận MGEMS',
+            icon: '📝',
+            children: [
+                {
+                    label: 'Danh sách phiếu',
+                    icon: '📋',
+                    href: admin_url('receipt-notes'),
+                },
+                {
+                    label: 'Tạo phiếu mới',
+                    icon: '➕',
+                    href: admin_url('receipt-notes/create'),
+                },
+            ],
+        },
+        {
             label: 'Quản lý Chi tiêu',
             icon: '💸',
             children: [

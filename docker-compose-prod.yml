@@ -3,7 +3,7 @@ name: phaptang
 services:
     laravel.app:
         build:
-            context: ./docker/8.2
+            context: ./docker/8.3
             dockerfile: Dockerfile
             args:
                 WWWGROUP: '${WWWGROUP:-1000}'

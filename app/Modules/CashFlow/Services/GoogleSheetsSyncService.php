@@ -8,12 +8,14 @@ use App\Modules\CashFlow\Models\InternalTransfer;
 use App\Modules\CashFlow\Models\Order;
 use App\Modules\CashFlow\Models\OrderItem;
 use App\Modules\CashFlow\Models\OrderPayment;
+use App\Modules\ReceiptNotes\Models\ReceiptNote;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class GoogleSheetsSyncService
 {
     protected ?string $webhookUrl;
+
     protected ?string $spreadsheetId;
 
     public function __construct()
@@ -37,7 +39,7 @@ class GoogleSheetsSyncService
             'branch_name' => $order->branch?->name,
             'consultant_name' => $order->consultant?->name ?? $order->consultant_name ?? '',
             'customer_name' => $order->customer_name,
-            'customer_phone' => "'" . $order->customer_phone, // Force text with leading zero in Sheets
+            'customer_phone' => "'".$order->customer_phone, // Force text with leading zero in Sheets
             'customer_gender' => $order->customer_gender,
             'source_name' => $order->customerSource?->name,
             'gross_amount' => (float) $order->gross_amount,
@@ -69,7 +71,7 @@ class GoogleSheetsSyncService
             'order_date' => $order->sale_date?->format('Y-m-d'),
             'line_number' => $item->line_number,
             'customer_name' => $order->customer_name,
-            'customer_phone' => !empty($order->customer_phone) ? "'" . $order->customer_phone : '',
+            'customer_phone' => ! empty($order->customer_phone) ? "'".$order->customer_phone : '',
             'product_name' => $item->product_name,
             'brand_name' => $item->brand?->name,
             'quantity' => $item->quantity,
@@ -150,7 +152,7 @@ class GoogleSheetsSyncService
      */
     public function isConfigured(): bool
     {
-        return !empty($this->webhookUrl) && !empty($this->spreadsheetId);
+        return ! empty($this->webhookUrl) && ! empty($this->spreadsheetId);
     }
 
     /**
@@ -158,7 +160,7 @@ class GoogleSheetsSyncService
      */
     public function syncOrder(Order $order, string $action = 'append'): bool
     {
-        if (!$this->isConfigured()) {
+        if (! $this->isConfigured()) {
             return false;
         }
 
@@ -173,7 +175,7 @@ class GoogleSheetsSyncService
             'payment.settledByUser',
         ]);
 
-        if ($order->payment && !$order->payment->relationLoaded('order')) {
+        if ($order->payment && ! $order->payment->relationLoaded('order')) {
             $order->payment->setRelation('order', $order);
         }
 
@@ -201,7 +203,7 @@ class GoogleSheetsSyncService
      */
     public function syncExpense(Expense $expense, string $action = 'append'): bool
     {
-        if (!$this->isConfigured()) {
+        if (! $this->isConfigured()) {
             return false;
         }
 
@@ -272,7 +274,7 @@ class GoogleSheetsSyncService
      */
     public function syncBalance(DailyStaffBalance $balance, string $action = 'append'): bool
     {
-        if (!$this->isConfigured()) {
+        if (! $this->isConfigured()) {
             return false;
         }
 
@@ -282,12 +284,58 @@ class GoogleSheetsSyncService
     }
 
     /**
+     * Format ReceiptNote for Phieu_Giao_Nhan sheet.
+     */
+    public function formatReceiptNoteRow(ReceiptNote $note): array
+    {
+        $note->loadMissing(['branch', 'creator']);
+
+        return [
+            'order_id' => $note->note_code,
+            'received_date' => $note->received_date ? $note->received_date->format('Y-m-d') : '',
+            'appointment_date' => $note->appointment_date ? $note->appointment_date->format('Y-m-d') : '',
+            'customer_name' => $note->customer_name,
+            'customer_phone' => ! empty($note->customer_phone) ? "'".$note->customer_phone : '',
+            'services' => $note->service_labels,
+            'estimated_price' => (float) $note->estimated_price,
+            'estimated_pickup_time' => $note->estimated_pickup_time ?? '',
+            'has_photos_saved' => $note->has_photos_saved ? 'Có' : 'Chưa',
+            'inspected_at_counter' => $note->inspected_at_counter ? 'Có' : 'Chưa',
+            'final_amount' => (float) $note->final_amount,
+            'status' => $note->status_label,
+            'delivered_at' => $note->delivered_at ? $note->delivered_at->format('Y-m-d H:i:s') : '',
+            'proxy_receiver_info' => $note->proxy_receiver_info ?? '',
+            'receiver_signature' => $note->receiver_signature ?? '',
+            'delivery_staff_name' => $note->delivery_staff_name ?? '',
+            'branch_name' => $note->branch?->name ?? '',
+            'created_by' => $note->creator?->name ?? ($note->telegram_user_id ? "TG:{$note->telegram_user_id}" : 'System'),
+            'created_at' => $note->created_at?->toIso8601String() ?? '',
+            'note' => $note->notes ?? '',
+        ];
+    }
+
+    /**
+     * Sync ReceiptNote (Phieu_Giao_Nhan sheet).
+     */
+    public function syncReceiptNote(ReceiptNote $note, string $action = 'append'): bool
+    {
+        if (! $this->isConfigured()) {
+            return false;
+        }
+
+        $note->loadMissing(['branch', 'creator']);
+
+        return $this->sync('Phieu_Giao_Nhan', [$this->formatReceiptNoteRow($note)], $action);
+    }
+
+    /**
      * Sync data to Google Sheets via Webhook (Google Apps Script Web App).
      */
     public function sync(string $sheetName, array $rows, string $action = 'append'): bool
     {
-        if (!$this->webhookUrl) {
+        if (! $this->webhookUrl) {
             Log::info("Google Sheets Webhook URL not configured. Sync skipped for sheet: {$sheetName}");
+
             return false;
         }
 
@@ -301,9 +349,9 @@ class GoogleSheetsSyncService
 
             return $response->successful();
         } catch (\Throwable $e) {
-            Log::error("Failed to sync to Google Sheets: " . $e->getMessage());
+            Log::error('Failed to sync to Google Sheets: '.$e->getMessage());
+
             return false;
         }
     }
 }
-

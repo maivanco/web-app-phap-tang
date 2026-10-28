@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Models\User;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 
 /*
@@ -19,8 +21,8 @@ use Inertia\Inertia;
 Route::get('/', function () {
     $needsSetup = false;
     try {
-        $needsSetup = \Illuminate\Support\Facades\Schema::hasTable('users') && \App\Models\User::count() === 0;
-    } catch (\Throwable) {
+        $needsSetup = Schema::hasTable('users') && User::count() === 0;
+    } catch (Throwable) {
         $needsSetup = false;
     }
 
@@ -44,7 +46,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/admin/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
-require __DIR__ . '/auth.php';
+require __DIR__.'/auth.php';
 
 // Load CashFlow Module routes
 if (file_exists(app_path('Modules/CashFlow/routes.php'))) {
@@ -66,4 +68,7 @@ if (file_exists(app_path('Modules/PayablesReceivables/routes.php'))) {
     require app_path('Modules/PayablesReceivables/routes.php');
 }
 
-
+// Load ReceiptNotes Module routes
+if (file_exists(app_path('Modules/ReceiptNotes/routes.php'))) {
+    require app_path('Modules/ReceiptNotes/routes.php');
+}

@@ -3,6 +3,28 @@
 namespace App\Providers;
 
 // use Illuminate\Support\Facades\Gate;
+use App\Models\User;
+use App\Modules\CashFlow\Models\DailyStaffBalance;
+use App\Modules\CashFlow\Models\Expense;
+use App\Modules\CashFlow\Models\FinancialAccount;
+use App\Modules\CashFlow\Models\InternalTransfer;
+use App\Modules\CashFlow\Models\Order;
+use App\Modules\CashFlow\Policies\DailyStaffBalancePolicy;
+use App\Modules\CashFlow\Policies\ExpensePolicy;
+use App\Modules\CashFlow\Policies\FinancialAccountPolicy;
+use App\Modules\CashFlow\Policies\InternalTransferPolicy;
+use App\Modules\CashFlow\Policies\OrderPolicy;
+use App\Modules\CashFlow\Policies\UserPolicy;
+use App\Modules\GeneralSettings\Models\Setting;
+use App\Modules\GeneralSettings\Policies\SettingPolicy;
+use App\Modules\PayablesReceivables\Models\AccountPayable;
+use App\Modules\PayablesReceivables\Policies\AccountPayablePolicy;
+use App\Modules\QrEventGenerator\Models\Event;
+use App\Modules\QrEventGenerator\Models\EventAttendee;
+use App\Modules\QrEventGenerator\Policies\EventAttendeePolicy;
+use App\Modules\QrEventGenerator\Policies\EventPolicy;
+use App\Modules\ReceiptNotes\Models\ReceiptNote;
+use App\Modules\ReceiptNotes\Policies\ReceiptNotePolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 
 class AuthServiceProvider extends ServiceProvider
@@ -13,16 +35,17 @@ class AuthServiceProvider extends ServiceProvider
      * @var array<class-string, class-string>
      */
     protected $policies = [
-        \App\Modules\CashFlow\Models\Order::class => \App\Modules\CashFlow\Policies\OrderPolicy::class,
-        \App\Modules\CashFlow\Models\Expense::class => \App\Modules\CashFlow\Policies\ExpensePolicy::class,
-        \App\Modules\CashFlow\Models\InternalTransfer::class => \App\Modules\CashFlow\Policies\InternalTransferPolicy::class,
-        \App\Modules\CashFlow\Models\DailyStaffBalance::class => \App\Modules\CashFlow\Policies\DailyStaffBalancePolicy::class,
-        \App\Modules\CashFlow\Models\FinancialAccount::class => \App\Modules\CashFlow\Policies\FinancialAccountPolicy::class,
-        \App\Models\User::class => \App\Modules\CashFlow\Policies\UserPolicy::class,
-        \App\Modules\QrEventGenerator\Models\Event::class => \App\Modules\QrEventGenerator\Policies\EventPolicy::class,
-        \App\Modules\QrEventGenerator\Models\EventAttendee::class => \App\Modules\QrEventGenerator\Policies\EventAttendeePolicy::class,
-        \App\Modules\GeneralSettings\Models\Setting::class => \App\Modules\GeneralSettings\Policies\SettingPolicy::class,
-        \App\Modules\PayablesReceivables\Models\AccountPayable::class => \App\Modules\PayablesReceivables\Policies\AccountPayablePolicy::class,
+        Order::class => OrderPolicy::class,
+        Expense::class => ExpensePolicy::class,
+        InternalTransfer::class => InternalTransferPolicy::class,
+        DailyStaffBalance::class => DailyStaffBalancePolicy::class,
+        FinancialAccount::class => FinancialAccountPolicy::class,
+        User::class => UserPolicy::class,
+        Event::class => EventPolicy::class,
+        EventAttendee::class => EventAttendeePolicy::class,
+        Setting::class => SettingPolicy::class,
+        AccountPayable::class => AccountPayablePolicy::class,
+        ReceiptNote::class => ReceiptNotePolicy::class,
     ];
 
     /**
