@@ -13,6 +13,8 @@ use App\Modules\CashFlow\Models\InternalTransfer;
 use App\Modules\CashFlow\Models\OrderPayment;
 use App\Modules\CashFlow\Models\TelegramAuthorizedUser;
 use App\Modules\CashFlow\Models\TelegramSession;
+use App\Modules\ReceiptNotes\Models\ReceiptNote;
+use App\Modules\ReceiptNotes\Services\ReceiptNoteService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -20,12 +22,16 @@ class TelegramBotService
 {
     protected ?string $botToken;
 
+    protected ReceiptNoteService $receiptNoteService;
+
     public function __construct(
         protected OrderService $orderService,
         protected ExpenseService $expenseService,
-        protected GoogleSheetsSyncService $sheetsSyncService
+        protected GoogleSheetsSyncService $sheetsSyncService,
+        ?ReceiptNoteService $receiptNoteService = null
     ) {
         $this->botToken = config('services.telegram.bot_token', env('TELEGRAM_BOT_TOKEN'));
+        $this->receiptNoteService = $receiptNoteService ?? app(ReceiptNoteService::class);
     }
 
     /**
@@ -38,7 +44,7 @@ class TelegramBotService
         $callbackData = $update['callback_query']['data'] ?? null;
         $text = trim($update['message']['text'] ?? '');
 
-        if (!$message || !$from) {
+        if (! $message || ! $from) {
             return;
         }
 
@@ -51,10 +57,11 @@ class TelegramBotService
             ->where('is_active', true)
             ->first();
 
-        if (!$authorizedUser) {
+        if (! $authorizedUser) {
             $this->sendMessage($chatId, "⚠️ Bạn chưa được cấp quyền sử dụng bot này. Vui lòng liên hệ Quản lý hệ thống (Telegram ID của bạn: `{$userId}`).", [
                 'parse_mode' => 'Markdown',
             ]);
+
             return;
         }
 
@@ -77,13 +84,14 @@ class TelegramBotService
                 'current_step' => 0,
                 'draft_data' => [],
             ]);
-            $this->sendMessage($chatId, "❌ Đã hủy bản nháp hiện tại. Bạn có thể bấm /start để bắt đầu lại.", [
+            $this->sendMessage($chatId, '❌ Đã hủy bản nháp hiện tại. Bạn có thể bấm /start để bắt đầu lại.', [
                 'reply_markup' => json_encode([
                     'inline_keyboard' => [
                         [['text' => '🔄 Bắt đầu (/start)', 'callback_data' => 'CMD_START']],
                     ],
                 ]),
             ]);
+
             return;
         }
 
@@ -95,6 +103,7 @@ class TelegramBotService
                 'draft_data' => [],
             ]);
             $this->sendMainMenu($chatId, $session);
+
             return;
         }
 
@@ -102,11 +111,13 @@ class TelegramBotService
         $input = $callbackData ?: $text;
 
         if (
-            in_array($input, ['MODE_ORDER', 'MODE_EXPENSE', 'MODE_CLOSING_BALANCE', 'CMD_CLOSING_BALANCE', 'CMD_REENTER_OPENING_BALANCE', 'SELECT_BRANCH', 'CMD_SELECT_BALANCE_ACCOUNT'])
+            in_array($input, ['MODE_ORDER', 'MODE_EXPENSE', 'MODE_RECEIPT_NOTE', 'MODE_CLOSING_BALANCE', 'CMD_CLOSING_BALANCE', 'CMD_REENTER_OPENING_BALANCE', 'SELECT_BRANCH', 'CMD_SELECT_BALANCE_ACCOUNT'])
             || str_starts_with($input, 'BAL_ACC_')
             || str_starts_with($input, 'BAL_ACTION_')
+            || str_starts_with($input, 'RN_')
         ) {
             $this->handleMainMenuSelection($session, $input, $chatId, $userId);
+
             return;
         }
 
@@ -114,6 +125,8 @@ class TelegramBotService
             $this->handleOrderFlow($session, $input, $chatId, $userId);
         } elseif ($session->current_mode === 'expense') {
             $this->handleExpenseFlow($session, $input, $chatId, $userId);
+        } elseif ($session->current_mode === 'receipt_note') {
+            $this->handleReceiptNoteFlow($session, $input, $chatId, $userId);
         } elseif ($session->current_mode === 'opening_balance') {
             $this->handleOpeningBalanceFlow($session, $input, $chatId, $userId);
         } elseif ($session->current_mode === 'closing_balance') {
@@ -128,7 +141,7 @@ class TelegramBotService
      */
     protected function sendMainMenu(int $chatId, TelegramSession $session): void
     {
-        $branchInfo = $session->selectedBranch ? "📍 Chi nhánh hiện tại: *{$session->selectedBranch->name}*\n\n" : "";
+        $branchInfo = $session->selectedBranch ? "📍 Chi nhánh hiện tại: *{$session->selectedBranch->name}*\n\n" : '';
 
         $this->sendMessage($chatId, "👋 *HỆ THỐNG PHÁP TẠNG*\n\n{$branchInfo}Chọn thao tác để tiếp tục:", [
             'parse_mode' => 'Markdown',
@@ -139,7 +152,10 @@ class TelegramBotService
                         ['text' => '💸 B. Chi tiêu', 'callback_data' => 'MODE_EXPENSE'],
                     ],
                     [
+                        ['text' => '📝 Phiếu giao nhận', 'callback_data' => 'MODE_RECEIPT_NOTE'],
                         ['text' => '🏁 Nhập số dư', 'callback_data' => 'MODE_CLOSING_BALANCE'],
+                    ],
+                    [
                         ['text' => '🏢 Đổi chi nhánh', 'callback_data' => 'SELECT_BRANCH'],
                     ],
                 ],
@@ -157,33 +173,39 @@ class TelegramBotService
                     $session->update(['selected_branch_id' => $branch->id]);
                     $this->sendMessage($chatId, "✅ Đã chọn chi nhánh: *{$branch->name}*", ['parse_mode' => 'Markdown']);
                     $this->sendMainMenu($chatId, $session->fresh());
+
                     return;
                 }
             }
             $this->promptBranchSelection($chatId);
+
             return;
         }
 
         if ($input === 'CMD_SELECT_BALANCE_ACCOUNT') {
             $this->promptBalanceAccountSelection($chatId);
+
             return;
         }
 
         if (str_starts_with($input, 'BAL_ACC_')) {
             $accId = (int) substr($input, strlen('BAL_ACC_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId);
+
             return;
         }
 
         if (str_starts_with($input, 'BAL_ACTION_OPEN_')) {
             $accId = (int) substr($input, strlen('BAL_ACTION_OPEN_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'opening');
+
             return;
         }
 
         if (str_starts_with($input, 'BAL_ACTION_CLOSE_')) {
             $accId = (int) substr($input, strlen('BAL_ACTION_CLOSE_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+
             return;
         }
 
@@ -197,7 +219,7 @@ class TelegramBotService
                     ->first();
 
                 // If opening balance not set yet today
-                if (!$todayBalance || $todayBalance->opened_at === null) {
+                if (! $todayBalance || $todayBalance->opened_at === null) {
                     $session->update([
                         'current_mode' => 'opening_balance',
                         'current_step' => 1,
@@ -208,7 +230,7 @@ class TelegramBotService
                     ]);
 
                     $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
-                    $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : "";
+                    $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : '';
 
                     $this->sendMessage($chatId, "🌅 *KHỞI ĐẦU CA MỚI - NHẬP SỐ DƯ ĐẦU NGÀY*\n\nChào *{$user->name}*, đây là phiên làm việc đầu ngày của bạn.\n\nVui lòng nhập *Số dư đầu ngày* hiện tại trên ứng dụng ngân hàng:\n🏦 *{$accName}{$letterCode}*\n\n_(Ví dụ: `5,000,000` hoặc `5000000` hoặc `5tr`)_", [
                         'parse_mode' => 'Markdown',
@@ -220,13 +242,15 @@ class TelegramBotService
                             ],
                         ]),
                     ]);
+
                     return;
                 }
             }
 
-            if (!$session->selected_branch_id) {
+            if (! $session->selected_branch_id) {
                 $session->update(['current_mode' => 'order', 'current_step' => 1, 'draft_data' => []]);
                 $this->promptBranchSelection($chatId);
+
                 return;
             }
             $session->update([
@@ -234,13 +258,14 @@ class TelegramBotService
                 'current_step' => 2,
                 'draft_data' => ['items' => []],
             ]);
-            $this->promptConsultantSelection($chatId, "📝 *NHẬP ĐƠN BÁN HÀNG*");
+            $this->promptConsultantSelection($chatId, '📝 *NHẬP ĐƠN BÁN HÀNG*');
+
             return;
         }
 
         if ($input === 'MODE_CLOSING_BALANCE' || $input === 'CMD_CLOSING_BALANCE') {
             $user = User::with('financialAccount')->where('telegram_user_id', $userId)->first();
-            
+
             // If user has an assigned account, default to their account while offering choice of all accounts
             if ($user && $user->financial_account_id) {
                 $today = now()->toDateString();
@@ -249,15 +274,15 @@ class TelegramBotService
                     ->first();
 
                 $accName = $user->financialAccount?->name ?? 'Tài khoản ngân hàng';
-                $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : "";
+                $letterCode = $user->financialAccount?->letter_code ? " ({$user->financialAccount->letter_code})" : '';
 
                 $currentOpeningText = ($balance && $balance->opened_at)
-                    ? number_format((float) $balance->opening_balance) . " ₫"
-                    : "Chưa ghi nhận";
+                    ? number_format((float) $balance->opening_balance).' ₫'
+                    : 'Chưa ghi nhận';
 
                 $currentClosingText = ($balance && $balance->closing_balance !== null)
-                    ? number_format((float) $balance->closing_balance) . " ₫"
-                    : "Chưa chốt";
+                    ? number_format((float) $balance->closing_balance).' ₫'
+                    : 'Chưa chốt';
 
                 $session->update([
                     'current_mode' => 'closing_balance',
@@ -284,6 +309,7 @@ class TelegramBotService
                         ],
                     ]),
                 ]);
+
                 return;
             }
 
@@ -294,6 +320,7 @@ class TelegramBotService
                 'draft_data' => [],
             ]);
             $this->promptBalanceAccountSelection($chatId);
+
             return;
         }
 
@@ -303,17 +330,20 @@ class TelegramBotService
 
             if ($accountId) {
                 $this->selectBalanceAccount($session, $accountId, $chatId, $userId, 'opening');
+
                 return;
             }
 
-            $this->promptBalanceAccountSelection($chatId, "🌅 Vui lòng chọn tài khoản để nhập số dư đầu ngày:");
+            $this->promptBalanceAccountSelection($chatId, '🌅 Vui lòng chọn tài khoản để nhập số dư đầu ngày:');
+
             return;
         }
 
         if ($input === 'MODE_EXPENSE' || strtoupper($input) === 'B') {
-            if (!$session->selected_branch_id) {
+            if (! $session->selected_branch_id) {
                 $session->update(['current_mode' => 'expense', 'current_step' => 1, 'draft_data' => []]);
                 $this->promptBranchSelection($chatId);
+
                 return;
             }
             $session->update([
@@ -322,6 +352,42 @@ class TelegramBotService
                 'draft_data' => [],
             ]);
             $this->sendMessage($chatId, "💸 *NHẬP CHI TIÊU*\n\nBước 1: Nhập *Người chi*:", ['parse_mode' => 'Markdown']);
+
+            return;
+        }
+
+        if ($input === 'MODE_RECEIPT_NOTE' || str_starts_with($input, 'RN_')) {
+            if (! $session->selected_branch_id) {
+                $session->update(['current_mode' => 'receipt_note', 'current_step' => 1, 'draft_data' => []]);
+                $this->promptBranchSelection($chatId);
+
+                return;
+            }
+
+            if ($input === 'MODE_RECEIPT_NOTE') {
+                $session->update([
+                    'current_mode' => 'receipt_note',
+                    'current_step' => 1,
+                    'draft_data' => [
+                        'branch_id' => $session->selected_branch_id,
+                        'service_types' => [],
+                    ],
+                ]);
+                $this->sendMessage($chatId, "📝 *PHIẾU GIAO NHẬN VÒNG THẮT/SỬA MGEMS*\n\n👉 *Bước 1/5*: Nhập *Tên khách hàng*:\n_(Ví dụ: Chị Lan, Anh Nam...)_", [
+                    'parse_mode' => 'Markdown',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [['text' => '❌ Hủy tạo phiếu', 'callback_data' => 'CMD_HUY']],
+                        ],
+                    ]),
+                ]);
+
+                return;
+            }
+
+            // Route any RN_ button to receipt note flow
+            $this->handleReceiptNoteFlow($session, $input, $chatId, $userId);
+
             return;
         }
 
@@ -343,14 +409,14 @@ class TelegramBotService
                 'card_gateway' => '💳',
                 default => '🏦',
             };
-            $letter = $acc->letter_code ? "{$acc->letter_code}. " : "";
+            $letter = $acc->letter_code ? "{$acc->letter_code}. " : '';
             $buttons[] = [['text' => "{$typeIcon} {$letter}{$acc->name}", 'callback_data' => "BAL_ACC_{$acc->id}"]];
         }
         $buttons[] = [['text' => '🔙 Quay lại Menu', 'callback_data' => 'CMD_START']];
 
-        $msg = ($prefix ? "{$prefix}\n\n" : "") .
-            "🏦 *CHỌN TÀI KHOẢN CẦN NHẬP / CHỐT SỐ DƯ:*\n\n" .
-            "Vui lòng chọn tài khoản từ danh sách dưới đây:";
+        $msg = ($prefix ? "{$prefix}\n\n" : '').
+            "🏦 *CHỌN TÀI KHOẢN CẦN NHẬP / CHỐT SỐ DƯ:*\n\n".
+            'Vui lòng chọn tài khoản từ danh sách dưới đây:';
 
         $this->sendMessage($chatId, $msg, [
             'parse_mode' => 'Markdown',
@@ -361,9 +427,10 @@ class TelegramBotService
     protected function selectBalanceAccount(TelegramSession $session, int $accountId, int $chatId, int $userId, ?string $forceType = null): void
     {
         $account = FinancialAccount::find($accountId);
-        if (!$account) {
-            $this->sendMessage($chatId, "⚠️ Không tìm thấy tài khoản ngân hàng.");
+        if (! $account) {
+            $this->sendMessage($chatId, '⚠️ Không tìm thấy tài khoản ngân hàng.');
             $this->promptBalanceAccountSelection($chatId);
+
             return;
         }
 
@@ -375,8 +442,8 @@ class TelegramBotService
 
         // Determine if opening or closing
         $type = $forceType;
-        if (!$type) {
-            if (!$balance || $balance->opened_at === null) {
+        if (! $type) {
+            if (! $balance || $balance->opened_at === null) {
                 $type = 'opening';
             } else {
                 $type = 'closing';
@@ -393,18 +460,18 @@ class TelegramBotService
         ]);
 
         $accName = $account->name;
-        $letterCode = $account->letter_code ? " ({$account->letter_code})" : "";
+        $letterCode = $account->letter_code ? " ({$account->letter_code})" : '';
         $todayFormatted = now()->format('d/m/Y');
 
         $openingText = ($balance && $balance->opened_at)
-            ? number_format((float) $balance->opening_balance) . " ₫"
-            : "Chưa ghi nhận";
+            ? number_format((float) $balance->opening_balance).' ₫'
+            : 'Chưa ghi nhận';
 
         $closingText = ($balance && $balance->closing_balance !== null)
-            ? number_format((float) $balance->closing_balance) . " ₫"
-            : "Chưa chốt";
+            ? number_format((float) $balance->closing_balance).' ₫'
+            : 'Chưa chốt';
 
-        $userName = $user ? $user->name : "Nhân viên";
+        $userName = $user ? $user->name : 'Nhân viên';
 
         if ($type === 'opening') {
             $this->sendMessage($chatId, "🌅 *NHẬP SỐ DƯ ĐẦU NGÀY*\n\n🏦 Tài khoản: *{$accName}{$letterCode}*\n👤 Người cập nhật: *{$userName}*\n📅 Ngày: *{$todayFormatted}*\n🌅 Số dư đầu ngày hiện tại: *{$openingText}*\n\n👉 Vui lòng nhập *Số dư đầu ngày* trên ứng dụng ngân hàng / sổ quỹ:\n_(Ví dụ: `5,000,000` hoặc `5tr`)_", [
@@ -447,7 +514,7 @@ class TelegramBotService
             $buttons[] = [['text' => "{$b->code}. {$b->name}", 'callback_data' => "SET_BRANCH_{$b->code}"]];
         }
 
-        $this->sendMessage($chatId, "📍 *Chọn chi nhánh làm việc:*", [
+        $this->sendMessage($chatId, '📍 *Chọn chi nhánh làm việc:*', [
             'parse_mode' => 'Markdown',
             'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
         ]);
@@ -458,10 +525,10 @@ class TelegramBotService
         $users = User::orderBy('name')->get();
         $buttons = [];
         foreach ($users as $user) {
-            $buttons[] = [['text' => "👤 {$user->name}" . ($user->role ? " ({$user->role})" : ""), 'callback_data' => "CONSULTANT_{$user->id}"]];
+            $buttons[] = [['text' => "👤 {$user->name}".($user->role ? " ({$user->role})" : ''), 'callback_data' => "CONSULTANT_{$user->id}"]];
         }
 
-        $msg = ($prefix ? "{$prefix}\n\n" : "") . "👤 *Bước 2: Chọn tư vấn viên từ danh sách:*";
+        $msg = ($prefix ? "{$prefix}\n\n" : '').'👤 *Bước 2: Chọn tư vấn viên từ danh sách:*';
         $this->sendMessage($chatId, $msg, [
             'parse_mode' => 'Markdown',
             'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
@@ -480,8 +547,9 @@ class TelegramBotService
             case 1: // Branch selection
                 $code = str_replace('SET_BRANCH_', '', $input);
                 $branch = Branch::where('code', strtoupper($code))->first();
-                if (!$branch) {
+                if (! $branch) {
                     $this->promptBranchSelection($chatId);
+
                     return;
                 }
                 $session->update([
@@ -503,8 +571,9 @@ class TelegramBotService
                         ->first();
                 }
 
-                if (!$consultant) {
-                    $this->promptConsultantSelection($chatId, "⚠️ Vui lòng chọn tư vấn viên từ danh sách bên dưới:");
+                if (! $consultant) {
+                    $this->promptConsultantSelection($chatId, '⚠️ Vui lòng chọn tư vấn viên từ danh sách bên dưới:');
+
                     return;
                 }
 
@@ -517,18 +586,19 @@ class TelegramBotService
             case 3: // Customer name
                 $draft['customer_name'] = trim($input);
                 $session->update(['draft_data' => $draft, 'current_step' => 4]);
-                $this->sendMessage($chatId, "📱 Nhập *Số điện thoại khách* (dạng text, giữ số 0 đầu):", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, '📱 Nhập *Số điện thoại khách* (dạng text, giữ số 0 đầu):', ['parse_mode' => 'Markdown']);
                 break;
 
             case 4: // Customer phone
                 $phone = trim($input);
-                if (!preg_match('/^0[0-9]{8,11}$/', $phone)) {
-                    $this->sendMessage($chatId, "⚠️ Số điện thoại không hợp lệ (cần bắt đầu bằng số 0 và có 9-12 chữ số). Vui lòng nhập lại:", ['parse_mode' => 'Markdown']);
+                if (! preg_match('/^0[0-9]{8,11}$/', $phone)) {
+                    $this->sendMessage($chatId, '⚠️ Số điện thoại không hợp lệ (cần bắt đầu bằng số 0 và có 9-12 chữ số). Vui lòng nhập lại:', ['parse_mode' => 'Markdown']);
+
                     return;
                 }
                 $draft['customer_phone'] = $phone;
                 $session->update(['draft_data' => $draft, 'current_step' => 5]);
-                $this->sendMessage($chatId, "⚧ Chọn *Giới tính khách hàng*:", [
+                $this->sendMessage($chatId, '⚧ Chọn *Giới tính khách hàng*:', [
                     'parse_mode' => 'Markdown',
                     'reply_markup' => json_encode([
                         'inline_keyboard' => [
@@ -543,7 +613,7 @@ class TelegramBotService
 
             case 5: // Gender
                 $gender = str_replace('GENDER_', '', $input);
-                if (!in_array($gender, ['Nam', 'Nữ'])) {
+                if (! in_array($gender, ['Nam', 'Nữ'])) {
                     $gender = 'Nam';
                 }
                 $draft['customer_gender'] = $gender;
@@ -555,7 +625,7 @@ class TelegramBotService
                 foreach ($sources as $s) {
                     $keyboard[] = [['text' => "{$s->code}. {$s->name}", 'callback_data' => "SOURCE_{$s->id}"]];
                 }
-                $this->sendMessage($chatId, "🌐 Chọn *Nguồn khách hàng* (A-F):", [
+                $this->sendMessage($chatId, '🌐 Chọn *Nguồn khách hàng* (A-F):', [
                     'parse_mode' => 'Markdown',
                     'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
                 ]);
@@ -579,7 +649,7 @@ class TelegramBotService
                 foreach ($brands as $b) {
                     $keyboard[] = [['text' => "{$b->code}. {$b->name}", 'callback_data' => "BRAND_{$b->id}"]];
                 }
-                $this->sendMessage($chatId, "🏷️ Chọn *Thương hiệu / Nhà phân phối* (a/b/c):", [
+                $this->sendMessage($chatId, '🏷️ Chọn *Thương hiệu / Nhà phân phối* (a/b/c):', [
                     'parse_mode' => 'Markdown',
                     'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
                 ]);
@@ -589,24 +659,26 @@ class TelegramBotService
                 $brandId = (int) str_replace('BRAND_', '', $input);
                 $draft['current_item']['brand_id'] = $brandId;
                 $session->update(['draft_data' => $draft, 'current_step' => 9]);
-                $this->sendMessage($chatId, "🔢 Nhập *Số lượng* (số nguyên dương, ví dụ: 1):", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, '🔢 Nhập *Số lượng* (số nguyên dương, ví dụ: 1):', ['parse_mode' => 'Markdown']);
                 break;
 
             case 9: // Quantity
                 $qty = (int) trim($input);
                 if ($qty <= 0) {
-                    $this->sendMessage($chatId, "⚠️ Số lượng phải lớn hơn 0. Vui lòng nhập lại số lượng:");
+                    $this->sendMessage($chatId, '⚠️ Số lượng phải lớn hơn 0. Vui lòng nhập lại số lượng:');
+
                     return;
                 }
                 $draft['current_item']['quantity'] = $qty;
                 $session->update(['draft_data' => $draft, 'current_step' => 10]);
-                $this->sendMessage($chatId, "💰 Nhập *Đơn giá 1 sản phẩm* (VND nguyên đồng, không nhập chữ ví dụ 150000):", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, '💰 Nhập *Đơn giá 1 sản phẩm* (VND nguyên đồng, không nhập chữ ví dụ 150000):', ['parse_mode' => 'Markdown']);
                 break;
 
             case 10: // Unit price
                 $price = (float) trim($input);
                 if ($price <= 0) {
-                    $this->sendMessage($chatId, "⚠️ Đơn giá phải lớn hơn 0. Vui lòng nhập lại:");
+                    $this->sendMessage($chatId, '⚠️ Đơn giá phải lớn hơn 0. Vui lòng nhập lại:');
+
                     return;
                 }
                 $draft['current_item']['unit_price'] = $price;
@@ -632,12 +704,13 @@ class TelegramBotService
                     $nextIndex = count($draft['items']) + 1;
                     $session->update(['current_step' => 7]);
                     $this->sendMessage($chatId, "📦 *Nhập sản phẩm {$nextIndex}:*\nNhập *Tên sản phẩm*:", ['parse_mode' => 'Markdown']);
+
                     return;
                 }
 
                 // Prompt Discount A-E
                 $session->update(['current_step' => 12]);
-                $this->sendMessage($chatId, "🏷️ Chọn *Mức chiết khấu toàn đơn* (A-E):", [
+                $this->sendMessage($chatId, '🏷️ Chọn *Mức chiết khấu toàn đơn* (A-E):', [
                     'reply_markup' => json_encode([
                         'inline_keyboard' => [
                             [['text' => 'A. Giảm 3%', 'callback_data' => 'DISC_A'], ['text' => 'B. Giảm 5%', 'callback_data' => 'DISC_B']],
@@ -650,18 +723,18 @@ class TelegramBotService
 
             case 12: // Discount
                 $discCode = str_replace('DISC_', '', strtoupper($input));
-                if (!in_array($discCode, ['A', 'B', 'C', 'D', 'E'])) {
+                if (! in_array($discCode, ['A', 'B', 'C', 'D', 'E'])) {
                     $discCode = 'E';
                 }
                 $draft['discount_code'] = $discCode;
                 $session->update(['draft_data' => $draft, 'current_step' => 13]);
-                $this->sendMessage($chatId, "📝 Nhập *Ghi chú cho đơn* (nhập dấu `-` nếu không có):", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, '📝 Nhập *Ghi chú cho đơn* (nhập dấu `-` nếu không có):', ['parse_mode' => 'Markdown']);
                 break;
 
             case 13: // Note
                 $draft['note'] = trim($input);
                 $session->update(['draft_data' => $draft, 'current_step' => 14]);
-                $this->sendMessage($chatId, "💳 Chọn *Hình thức thanh toán*:", [
+                $this->sendMessage($chatId, '💳 Chọn *Hình thức thanh toán*:', [
                     'reply_markup' => json_encode([
                         'inline_keyboard' => [
                             [
@@ -681,12 +754,14 @@ class TelegramBotService
                 if ($cleanInput === 'PAY_cash' || mb_strtolower($cleanInput) === 'tiền mặt') {
                     $draft['payment_method'] = 'cash';
                     $this->finalizeOrderCreation($session, $draft, $chatId, $userId);
+
                     return;
                 }
 
                 if ($cleanInput === 'PAY_unpaid' || mb_strtolower($cleanInput) === 'chưa thanh toán') {
                     $draft['payment_method'] = 'unpaid';
                     $this->finalizeOrderCreation($session, $draft, $chatId, $userId);
+
                     return;
                 }
 
@@ -702,7 +777,7 @@ class TelegramBotService
                 }
 
                 $session->update(['current_step' => 15]);
-                $this->sendMessage($chatId, "🏦 Chọn *Tài khoản thanh toán / Quẹt thẻ* (A-G):", [
+                $this->sendMessage($chatId, '🏦 Chọn *Tài khoản thanh toán / Quẹt thẻ* (A-G):', [
                     'parse_mode' => 'Markdown',
                     'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
                 ]);
@@ -720,10 +795,11 @@ class TelegramBotService
                         'parse_mode' => 'Markdown',
                         'reply_markup' => json_encode([
                             'inline_keyboard' => [
-                                [['text' => '📅 Hôm nay (' . now()->toDateString() . ')', 'callback_data' => 'DATE_TODAY']],
+                                [['text' => '📅 Hôm nay ('.now()->toDateString().')', 'callback_data' => 'DATE_TODAY']],
                             ],
                         ]),
                     ]);
+
                     return;
                 }
 
@@ -759,7 +835,7 @@ class TelegramBotService
             ]);
 
             // Format receipt
-            $itemRows = "";
+            $itemRows = '';
             foreach ($order->items as $idx => $it) {
                 $brandName = $it->brand?->name ?? '';
                 $itemRows .= sprintf(
@@ -777,23 +853,23 @@ class TelegramBotService
             $paymentText = match ($paymentMethod) {
                 'cash' => "Tiền mặt ({$order->branch->name})",
                 'card_swipe' => "QUẸT THẺ (Chờ tiền về - Ngày quẹt: {$order->payment->card_swipe_date})",
-                'unpaid' => "Chưa thanh toán",
+                'unpaid' => 'Chưa thanh toán',
                 default => "Chuyển khoản ({$order->payment?->account?->name})",
             };
 
-            $msg = "✅ *ĐÃ LƯU ĐƠN HÀNG THÀNH CÔNG!*\n\n" .
-                "📄 Mã đơn: `{$order->order_code}`\n" .
-                "📅 Ngày bán: {$order->sale_date->format('d/m/Y')}\n" .
-                "🏢 Chi nhánh: {$order->branch->name}\n" .
-                "👤 Tư vấn viên: " . ($order->consultant?->name ?? $order->consultant_name) . "\n" .
-                "👥 Khách hàng: {$order->customer_name} ({$order->customer_phone}) - {$order->customer_gender}\n" .
-                "🌐 Nguồn: {$order->customerSource->name}\n\n" .
-                "📦 *Chi tiết sản phẩm:*\n{$itemRows}\n" .
-                "💰 Tổng trước giảm: *" . number_format($order->gross_amount) . "đ*\n" .
-                "🏷️ Chiết khấu: *" . number_format($order->discount_amount) . "đ* (" . ($order->discount_rate * 100) . "%)\n" .
-                "💵 Doanh thu sau giảm: *" . number_format($order->net_revenue) . "đ*\n" .
-                "💳 Thanh toán: {$paymentText}\n" .
-                "📝 Ghi chú: " . ($order->note ?: 'Không có') . "\n";
+            $msg = "✅ *ĐÃ LƯU ĐƠN HÀNG THÀNH CÔNG!*\n\n".
+                "📄 Mã đơn: `{$order->order_code}`\n".
+                "📅 Ngày bán: {$order->sale_date->format('d/m/Y')}\n".
+                "🏢 Chi nhánh: {$order->branch->name}\n".
+                '👤 Tư vấn viên: '.($order->consultant?->name ?? $order->consultant_name)."\n".
+                "👥 Khách hàng: {$order->customer_name} ({$order->customer_phone}) - {$order->customer_gender}\n".
+                "🌐 Nguồn: {$order->customerSource->name}\n\n".
+                "📦 *Chi tiết sản phẩm:*\n{$itemRows}\n".
+                '💰 Tổng trước giảm: *'.number_format($order->gross_amount)."đ*\n".
+                '🏷️ Chiết khấu: *'.number_format($order->discount_amount).'đ* ('.($order->discount_rate * 100)."%)\n".
+                '💵 Doanh thu sau giảm: *'.number_format($order->net_revenue)."đ*\n".
+                "💳 Thanh toán: {$paymentText}\n".
+                '📝 Ghi chú: '.($order->note ?: 'Không có')."\n";
 
             $this->sendMessage($chatId, $msg, [
                 'parse_mode' => 'Markdown',
@@ -804,8 +880,8 @@ class TelegramBotService
                 ]),
             ]);
         } catch (\Throwable $e) {
-            Log::error("Failed to create order via Telegram: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            $this->sendMessage($chatId, "❌ Lỗi lưu đơn hàng: " . $e->getMessage() . "\nVui lòng thử lại hoặc gõ /huy.");
+            Log::error('Failed to create order via Telegram: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            $this->sendMessage($chatId, '❌ Lỗi lưu đơn hàng: '.$e->getMessage()."\nVui lòng thử lại hoặc gõ /huy.");
         }
     }
 
@@ -824,8 +900,9 @@ class TelegramBotService
                     ->orWhere('name', 'like', "%{$code}%")
                     ->first();
 
-                if (!$branch) {
+                if (! $branch) {
                     $this->promptBranchSelection($chatId);
+
                     return;
                 }
 
@@ -840,7 +917,8 @@ class TelegramBotService
             case 2: // Spender name
                 $spender = trim($input);
                 if (empty($spender)) {
-                    $this->sendMessage($chatId, "⚠️ Vui lòng nhập tên người chi:");
+                    $this->sendMessage($chatId, '⚠️ Vui lòng nhập tên người chi:');
+
                     return;
                 }
                 $draft['spender_name'] = $spender;
@@ -852,25 +930,27 @@ class TelegramBotService
             case 3: // Content
                 $content = trim($input);
                 if (empty($content)) {
-                    $this->sendMessage($chatId, "⚠️ Vui lòng nhập nội dung chi:");
+                    $this->sendMessage($chatId, '⚠️ Vui lòng nhập nội dung chi:');
+
                     return;
                 }
                 $draft['current_item']['content'] = $content;
                 $draft['content'] = $content; // for backward compatibility
                 $session->update(['draft_data' => $draft, 'current_step' => 4]);
-                $this->sendMessage($chatId, "🔢 Nhập *Số lượng* (nhập 1 nếu là tổng hóa đơn):", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, '🔢 Nhập *Số lượng* (nhập 1 nếu là tổng hóa đơn):', ['parse_mode' => 'Markdown']);
                 break;
 
             case 4: // Quantity
                 $qty = (int) trim($input);
                 if ($qty <= 0) {
-                    $this->sendMessage($chatId, "⚠️ Số lượng phải lớn hơn 0. Vui lòng nhập lại:");
+                    $this->sendMessage($chatId, '⚠️ Số lượng phải lớn hơn 0. Vui lòng nhập lại:');
+
                     return;
                 }
                 $draft['current_item']['quantity'] = $qty;
                 $draft['quantity'] = $qty; // for backward compatibility
                 $session->update(['draft_data' => $draft, 'current_step' => 5]);
-                $this->sendMessage($chatId, "💰 Nhập *Giá tiền / Đơn giá* (VND nguyên đồng, ví dụ: 200000):", ['parse_mode' => 'Markdown']);
+                $this->sendMessage($chatId, '💰 Nhập *Giá tiền / Đơn giá* (VND nguyên đồng, ví dụ: 200000):', ['parse_mode' => 'Markdown']);
                 break;
 
             case 5: // Unit price
@@ -882,8 +962,9 @@ class TelegramBotService
                     $cleanPrice = str_replace(['.', ','], '', $cleanPrice);
                 }
 
-                if (!is_numeric($cleanPrice) || (float) $cleanPrice < 0) {
-                    $this->sendMessage($chatId, "⚠️ Giá tiền không hợp lệ hoặc bị âm. Vui lòng nhập lại:");
+                if (! is_numeric($cleanPrice) || (float) $cleanPrice < 0) {
+                    $this->sendMessage($chatId, '⚠️ Giá tiền không hợp lệ hoặc bị âm. Vui lòng nhập lại:');
+
                     return;
                 }
                 $price = (float) $cleanPrice;
@@ -902,7 +983,7 @@ class TelegramBotService
 
                 $totalItems = count($draft['items']);
                 $lastItem = end($draft['items']);
-                $summaryLine = sprintf("%s (SL: %d x %sđ = %sđ)", $lastItem['content'], $lastItem['quantity'], number_format($lastItem['unit_price']), number_format($lastItem['total_amount']));
+                $summaryLine = sprintf('%s (SL: %d x %sđ = %sđ)', $lastItem['content'], $lastItem['quantity'], number_format($lastItem['unit_price']), number_format($lastItem['total_amount']));
 
                 $this->sendMessage($chatId, "✅ Đã thêm mục chi {$totalItems}!\n_{$summaryLine}_\n\nBạn có muốn thêm mục chi khác hay kết thúc?", [
                     'parse_mode' => 'Markdown',
@@ -922,11 +1003,12 @@ class TelegramBotService
                     $nextIndex = count($draft['items'] ?? []) + 1;
                     $session->update(['current_step' => 3]);
                     $this->sendMessage($chatId, "📝 *Nhập mục chi {$nextIndex}:*\nNhập *Nội dung chi*:", ['parse_mode' => 'Markdown']);
+
                     return;
                 }
 
                 if ($input === 'EXP_ITEM_FINISH' || $input === 'ITEM_FINISH' || mb_strtolower($input) === 'xong' || mb_strtolower($input) === 'tiep tuc' || mb_strtolower($input) === 'tiếp tục') {
-                    $this->sendMessage($chatId, "💳 Chọn *Hình thức thanh toán*:", [
+                    $this->sendMessage($chatId, '💳 Chọn *Hình thức thanh toán*:', [
                         'reply_markup' => json_encode([
                             'inline_keyboard' => [
                                 [
@@ -936,6 +1018,7 @@ class TelegramBotService
                             ],
                         ]),
                     ]);
+
                     return;
                 }
 
@@ -946,7 +1029,8 @@ class TelegramBotService
                 if ($isCash) {
                     $draft['payment_method'] = 'cash';
                     $session->update(['draft_data' => $draft, 'current_step' => 8]);
-                    $this->sendMessage($chatId, "📝 Nhập *Ghi chú khoản chi* (nhập dấu `-` nếu không có):", ['parse_mode' => 'Markdown']);
+                    $this->sendMessage($chatId, '📝 Nhập *Ghi chú khoản chi* (nhập dấu `-` nếu không có):', ['parse_mode' => 'Markdown']);
+
                     return;
                 }
 
@@ -965,14 +1049,15 @@ class TelegramBotService
                         $keyboard[] = [['text' => "{$acc->letter_code}. {$acc->name}", 'callback_data' => "EXP_ACC_{$acc->id}"]];
                     }
 
-                    $this->sendMessage($chatId, "🏦 Chi từ *Tài khoản ngân hàng nào* (chọn A-G, F không dùng cho chi):", [
+                    $this->sendMessage($chatId, '🏦 Chi từ *Tài khoản ngân hàng nào* (chọn A-G, F không dùng cho chi):', [
                         'parse_mode' => 'Markdown',
                         'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
                     ]);
+
                     return;
                 }
 
-                $this->sendMessage($chatId, "⚠️ Vui lòng chọn thao tác tiếp theo:", [
+                $this->sendMessage($chatId, '⚠️ Vui lòng chọn thao tác tiếp theo:', [
                     'reply_markup' => json_encode([
                         'inline_keyboard' => [
                             [
@@ -1004,7 +1089,7 @@ class TelegramBotService
                         ->where('letter_code', $trimmed)
                         ->first();
 
-                    if (!$account) {
+                    if (! $account) {
                         $raw = trim($input);
                         $account = FinancialAccount::where('status', 'active')
                             ->where('type', 'bank')
@@ -1016,7 +1101,7 @@ class TelegramBotService
                     }
                 }
 
-                if (!$account) {
+                if (! $account) {
                     $accounts = FinancialAccount::where('status', 'active')
                         ->where('type', 'bank')
                         ->orderBy('letter_code')
@@ -1027,10 +1112,11 @@ class TelegramBotService
                         $keyboard[] = [['text' => "{$acc->letter_code}. {$acc->name}", 'callback_data' => "EXP_ACC_{$acc->id}"]];
                     }
 
-                    $this->sendMessage($chatId, "⚠️ Tài khoản không hợp lệ. Vui lòng chọn tài khoản ngân hàng từ danh sách bên dưới (A-G, F không dùng cho chi):", [
+                    $this->sendMessage($chatId, '⚠️ Tài khoản không hợp lệ. Vui lòng chọn tài khoản ngân hàng từ danh sách bên dưới (A-G, F không dùng cho chi):', [
                         'parse_mode' => 'Markdown',
                         'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
                     ]);
+
                     return;
                 }
 
@@ -1100,22 +1186,22 @@ class TelegramBotService
 
             if (count($createdExpenses) === 1) {
                 $expense = $firstExpense;
-                $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU!*\n\n" .
-                    "📄 Mã chi: `{$expense->expense_code}`\n" .
-                    "📅 Ngày chi: {$expense->expense_date->format('d/m/Y')}\n" .
-                    "🏢 Chi nhánh: " . $escape($expense->branch->name) . "\n" .
-                    "👤 Người chi: " . $escape($expense->spender_name) . "\n" .
-                    "📝 Nội dung: " . $escape($expense->content) . "\n" .
-                    "🔢 Số lượng: {$expense->quantity}\n" .
-                    "💰 Đơn giá: " . number_format($expense->unit_price) . "đ\n" .
-                    "💸 *Tổng chi:* *" . number_format($expense->total_amount) . "đ*\n" .
-                    "💳 Nguồn tiền: " . $escape($sourceText) . "\n" .
-                    "📌 Ghi chú: " . $escape($expense->note ?: 'Không có') . "\n";
+                $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU!*\n\n".
+                    "📄 Mã chi: `{$expense->expense_code}`\n".
+                    "📅 Ngày chi: {$expense->expense_date->format('d/m/Y')}\n".
+                    '🏢 Chi nhánh: '.$escape($expense->branch->name)."\n".
+                    '👤 Người chi: '.$escape($expense->spender_name)."\n".
+                    '📝 Nội dung: '.$escape($expense->content)."\n".
+                    "🔢 Số lượng: {$expense->quantity}\n".
+                    '💰 Đơn giá: '.number_format($expense->unit_price)."đ\n".
+                    '💸 *Tổng chi:* *'.number_format($expense->total_amount)."đ*\n".
+                    '💳 Nguồn tiền: '.$escape($sourceText)."\n".
+                    '📌 Ghi chú: '.$escape($expense->note ?: 'Không có')."\n";
             } else {
                 $codes = implode(', ', array_map(fn ($e) => "`{$e->expense_code}`", $createdExpenses));
                 $totalSum = array_sum(array_map(fn ($e) => (float) $e->total_amount, $createdExpenses));
 
-                $itemRows = "";
+                $itemRows = '';
                 foreach ($createdExpenses as $idx => $e) {
                     $itemRows .= sprintf(
                         "%d. %s - SL: %d x %s = %sđ (`%s`)\n",
@@ -1128,15 +1214,15 @@ class TelegramBotService
                     );
                 }
 
-                $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU THÀNH CÔNG!*\n\n" .
-                    "📄 Mã chi: {$codes}\n" .
-                    "📅 Ngày chi: {$firstExpense->expense_date->format('d/m/Y')}\n" .
-                    "🏢 Chi nhánh: " . $escape($firstExpense->branch->name) . "\n" .
-                    "👤 Người chi: " . $escape($firstExpense->spender_name) . "\n\n" .
-                    "📦 *Chi tiết các mục chi:*\n{$itemRows}\n" .
-                    "💸 *Tổng chi cộng dồn:* *" . number_format($totalSum) . "đ*\n" .
-                    "💳 Nguồn tiền: " . $escape($sourceText) . "\n" .
-                    "📌 Ghi chú: " . $escape($firstExpense->note ?: 'Không có') . "\n";
+                $msg = "✅ *ĐÃ LƯU ĐƠN CHI TIÊU THÀNH CÔNG!*\n\n".
+                    "📄 Mã chi: {$codes}\n".
+                    "📅 Ngày chi: {$firstExpense->expense_date->format('d/m/Y')}\n".
+                    '🏢 Chi nhánh: '.$escape($firstExpense->branch->name)."\n".
+                    '👤 Người chi: '.$escape($firstExpense->spender_name)."\n\n".
+                    "📦 *Chi tiết các mục chi:*\n{$itemRows}\n".
+                    '💸 *Tổng chi cộng dồn:* *'.number_format($totalSum)."đ*\n".
+                    '💳 Nguồn tiền: '.$escape($sourceText)."\n".
+                    '📌 Ghi chú: '.$escape($firstExpense->note ?: 'Không có')."\n";
             }
 
             $this->sendMessage($chatId, $msg, [
@@ -1148,8 +1234,8 @@ class TelegramBotService
                 ]),
             ]);
         } catch (\Throwable $e) {
-            Log::error("Failed to create expense via Telegram: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            $this->sendMessage($chatId, "❌ Lỗi lưu chi tiêu: " . $e->getMessage() . "\nVui lòng thử lại hoặc gõ /huy.");
+            Log::error('Failed to create expense via Telegram: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            $this->sendMessage($chatId, '❌ Lỗi lưu chi tiêu: '.$e->getMessage()."\nVui lòng thử lại hoặc gõ /huy.");
         }
     }
 
@@ -1162,24 +1248,27 @@ class TelegramBotService
         if (str_starts_with($input, 'BAL_ACC_')) {
             $accId = (int) substr($input, strlen('BAL_ACC_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'opening');
+
             return;
         }
 
         if (str_starts_with($input, 'BAL_ACTION_CLOSE_')) {
             $accId = (int) substr($input, strlen('BAL_ACTION_CLOSE_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+
             return;
         }
 
         if ($input === 'CMD_SELECT_BALANCE_ACCOUNT') {
             $this->promptBalanceAccountSelection($chatId);
+
             return;
         }
 
         // Check if user entered an account letter or code instead of amount
         $trimmed = trim(strtoupper($input));
         $matchedAccount = FinancialAccount::where('status', 'active')
-            ->where(function ($q) use ($trimmed, $input) {
+            ->where(function ($q) use ($trimmed) {
                 $q->where('letter_code', $trimmed)
                     ->orWhere('code', $trimmed);
             })
@@ -1187,14 +1276,16 @@ class TelegramBotService
 
         if ($matchedAccount) {
             $this->selectBalanceAccount($session, $matchedAccount->id, $chatId, $userId, 'opening');
+
             return;
         }
 
         $amount = $this->parseAmount($input);
         if ($amount === null) {
-            $this->sendMessage($chatId, "⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `5,000,000` hoặc `5tr`):", [
+            $this->sendMessage($chatId, '⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `5,000,000` hoặc `5tr`):', [
                 'parse_mode' => 'Markdown',
             ]);
+
             return;
         }
 
@@ -1202,9 +1293,10 @@ class TelegramBotService
         $accountId = $session->draft_data['account_id'] ?? $user?->financial_account_id;
         $account = $accountId ? FinancialAccount::find($accountId) : null;
 
-        if (!$account) {
-            $this->sendMessage($chatId, "⚠️ Vui lòng chọn tài khoản từ danh sách dưới đây trước khi nhập số tiền:");
+        if (! $account) {
+            $this->sendMessage($chatId, '⚠️ Vui lòng chọn tài khoản từ danh sách dưới đây trước khi nhập số tiền:');
             $this->promptBalanceAccountSelection($chatId);
+
             return;
         }
 
@@ -1235,11 +1327,11 @@ class TelegramBotService
         try {
             $this->sheetsSyncService->syncBalance($balance);
         } catch (\Throwable $e) {
-            Log::warning("Failed to sync opening balance to Google Sheets: " . $e->getMessage());
+            Log::warning('Failed to sync opening balance to Google Sheets: '.$e->getMessage());
         }
 
         $accName = $account->name;
-        $letterCode = $account->letter_code ? " ({$account->letter_code})" : "";
+        $letterCode = $account->letter_code ? " ({$account->letter_code})" : '';
         $formatted = number_format($amount);
         $pending = $session->draft_data['pending_mode'] ?? null;
 
@@ -1248,9 +1340,10 @@ class TelegramBotService
                 'parse_mode' => 'Markdown',
             ]);
 
-            if (!$session->selected_branch_id) {
+            if (! $session->selected_branch_id) {
                 $session->update(['current_mode' => 'order', 'current_step' => 1, 'draft_data' => []]);
                 $this->promptBranchSelection($chatId);
+
                 return;
             }
             $session->update([
@@ -1258,7 +1351,8 @@ class TelegramBotService
                 'current_step' => 2,
                 'draft_data' => ['items' => []],
             ]);
-            $this->promptConsultantSelection($chatId, "📝 *NHẬP ĐƠN BÁN HÀNG*");
+            $this->promptConsultantSelection($chatId, '📝 *NHẬP ĐƠN BÁN HÀNG*');
+
             return;
         }
 
@@ -1293,30 +1387,34 @@ class TelegramBotService
         if (str_starts_with($input, 'BAL_ACC_')) {
             $accId = (int) substr($input, strlen('BAL_ACC_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+
             return;
         }
 
         if (str_starts_with($input, 'BAL_ACTION_OPEN_')) {
             $accId = (int) substr($input, strlen('BAL_ACTION_OPEN_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'opening');
+
             return;
         }
 
         if (str_starts_with($input, 'BAL_ACTION_CLOSE_')) {
             $accId = (int) substr($input, strlen('BAL_ACTION_CLOSE_'));
             $this->selectBalanceAccount($session, $accId, $chatId, $userId, 'closing');
+
             return;
         }
 
         if ($input === 'CMD_SELECT_BALANCE_ACCOUNT') {
             $this->promptBalanceAccountSelection($chatId);
+
             return;
         }
 
         // Check if user entered an account letter or code instead of amount
         $trimmed = trim(strtoupper($input));
         $matchedAccount = FinancialAccount::where('status', 'active')
-            ->where(function ($q) use ($trimmed, $input) {
+            ->where(function ($q) use ($trimmed) {
                 $q->where('letter_code', $trimmed)
                     ->orWhere('code', $trimmed);
             })
@@ -1324,14 +1422,16 @@ class TelegramBotService
 
         if ($matchedAccount) {
             $this->selectBalanceAccount($session, $matchedAccount->id, $chatId, $userId, 'closing');
+
             return;
         }
 
         $amount = $this->parseAmount($input);
         if ($amount === null) {
-            $this->sendMessage($chatId, "⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `15,000,000` hoặc `15tr`):", [
+            $this->sendMessage($chatId, '⚠️ Số tiền không hợp lệ. Vui lòng nhập số tiền hợp lệ (ví dụ: `15,000,000` hoặc `15tr`):', [
                 'parse_mode' => 'Markdown',
             ]);
+
             return;
         }
 
@@ -1339,9 +1439,10 @@ class TelegramBotService
         $accountId = $session->draft_data['account_id'] ?? $user?->financial_account_id;
         $account = $accountId ? FinancialAccount::find($accountId) : null;
 
-        if (!$account) {
-            $this->sendMessage($chatId, "⚠️ Vui lòng chọn tài khoản từ danh sách dưới đây trước khi nhập số tiền:");
+        if (! $account) {
+            $this->sendMessage($chatId, '⚠️ Vui lòng chọn tài khoản từ danh sách dưới đây trước khi nhập số tiền:');
             $this->promptBalanceAccountSelection($chatId);
+
             return;
         }
 
@@ -1376,7 +1477,7 @@ class TelegramBotService
         try {
             $this->sheetsSyncService->syncBalance($balance);
         } catch (\Throwable $e) {
-            Log::warning("Failed to sync closing balance to Google Sheets: " . $e->getMessage());
+            Log::warning('Failed to sync closing balance to Google Sheets: '.$e->getMessage());
         }
 
         // Calculate reconciliation for summary display
@@ -1409,27 +1510,27 @@ class TelegramBotService
         $discrepancy = $amount - $expectedBalance;
 
         $discrepancyText = $discrepancy == 0
-            ? "✅ Khớp tuyệt đối (0 ₫)"
+            ? '✅ Khớp tuyệt đối (0 ₫)'
             : ($discrepancy > 0
-                ? "🟢 Thừa: +" . number_format($discrepancy) . " ₫"
-                : "🔴 Thiếu: " . number_format($discrepancy) . " ₫");
+                ? '🟢 Thừa: +'.number_format($discrepancy).' ₫'
+                : '🔴 Thiếu: '.number_format($discrepancy).' ₫');
 
         $accName = $account->name;
-        $letterCode = $account->letter_code ? " ({$account->letter_code})" : "";
-        $userName = $user ? $user->name : "Nhân viên";
+        $letterCode = $account->letter_code ? " ({$account->letter_code})" : '';
+        $userName = $user ? $user->name : 'Nhân viên';
 
-        $summary = "🏁 *XÁC NHẬN CHỐT SỐ DƯ CA LÀM VIỆC*\n\n" .
-            "📅 Ngày: `" . now()->format('d/m/Y') . "`\n" .
-            "👤 Nhân viên: *{$userName}*\n" .
-            "🏦 Tài khoản: *{$accName}{$letterCode}*\n" .
-            "-----------------------------\n" .
-            "🌅 Số dư đầu ngày: *" . number_format((float) $balance->opening_balance) . " ₫*\n" .
-            "📥 Tiền thu đơn hàng: *+" . number_format($totalIn) . " ₫*\n" .
-            "📤 Tiền chi/chuyển: *-" . number_format($totalOut) . " ₫*\n" .
-            "📊 Số dư dự tính hệ thống: *" . number_format($expectedBalance) . " ₫*\n" .
-            "🏁 Số dư thực tế chốt: *" . number_format($amount) . " ₫*\n" .
-            "⚖️ Kết quả đối soát: *{$discrepancyText}*\n\n" .
-            "_(Bạn có thể nhập chốt lại bất kỳ lúc nào trong ngày nếu có thay đổi)_";
+        $summary = "🏁 *XÁC NHẬN CHỐT SỐ DƯ CA LÀM VIỆC*\n\n".
+            '📅 Ngày: `'.now()->format('d/m/Y')."`\n".
+            "👤 Nhân viên: *{$userName}*\n".
+            "🏦 Tài khoản: *{$accName}{$letterCode}*\n".
+            "-----------------------------\n".
+            '🌅 Số dư đầu ngày: *'.number_format((float) $balance->opening_balance)." ₫*\n".
+            '📥 Tiền thu đơn hàng: *+'.number_format($totalIn)." ₫*\n".
+            '📤 Tiền chi/chuyển: *-'.number_format($totalOut)." ₫*\n".
+            '📊 Số dư dự tính hệ thống: *'.number_format($expectedBalance)." ₫*\n".
+            '🏁 Số dư thực tế chốt: *'.number_format($amount)." ₫*\n".
+            "⚖️ Kết quả đối soát: *{$discrepancyText}*\n\n".
+            '_(Bạn có thể nhập chốt lại bất kỳ lúc nào trong ngày nếu có thay đổi)_';
 
         $session->update([
             'current_mode' => null,
@@ -1470,6 +1571,7 @@ class TelegramBotService
             $raw = str_replace(['tr', 'm', ','], ['', '', '.'], $clean);
             if (is_numeric($raw)) {
                 $val = (float) $raw * 1000000;
+
                 return $val >= 0 ? $val : null;
             }
         }
@@ -1479,6 +1581,7 @@ class TelegramBotService
             $raw = str_replace(['k', ','], ['', '.'], $clean);
             if (is_numeric($raw)) {
                 $val = (float) $raw * 1000;
+
                 return $val >= 0 ? $val : null;
             }
         }
@@ -1490,12 +1593,289 @@ class TelegramBotService
             $clean = str_replace(',', '', $clean);
         }
 
-        if (!is_numeric($clean)) {
+        if (! is_numeric($clean)) {
             return null;
         }
 
         $amount = (float) $clean;
+
         return $amount >= 0 ? $amount : null;
+    }
+
+    /**
+     * Handle Receipt Note conversation flow.
+     */
+    protected function handleReceiptNoteFlow(TelegramSession $session, string $input, int $chatId, int $userId): void
+    {
+        $draft = $session->draft_data ?: [];
+        $step = (int) $session->current_step;
+
+        switch ($step) {
+            case 1: // Customer name
+                $name = trim($input);
+                if (empty($name) || str_starts_with($name, '/')) {
+                    $this->sendMessage($chatId, '⚠️ Vui lòng nhập tên khách hàng hợp lệ:');
+
+                    return;
+                }
+                $draft['customer_name'] = $name;
+                $draft['branch_id'] = $session->selected_branch_id;
+                $draft['service_types'] = $draft['service_types'] ?? ['thay_day'];
+                $session->update(['draft_data' => $draft, 'current_step' => 2]);
+
+                $this->sendMessage($chatId, "📞 *Bước 2/5*: Nhập *Số điện thoại khách hàng*:\n_(Hoặc bấm Bỏ qua nếu không có SĐT)_", [
+                    'parse_mode' => 'Markdown',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                ['text' => '⏭️ Bỏ qua SĐT', 'callback_data' => 'RN_SKIP_PHONE'],
+                                ['text' => '❌ Hủy', 'callback_data' => 'CMD_HUY'],
+                            ],
+                        ],
+                    ]),
+                ]);
+                break;
+
+            case 2: // Customer phone
+                if ($input === 'RN_SKIP_PHONE') {
+                    $draft['customer_phone'] = '';
+                } else {
+                    $phone = trim($input);
+                    $draft['customer_phone'] = $phone;
+                }
+                $session->update(['draft_data' => $draft, 'current_step' => 3]);
+                $this->promptReceiptNoteServices($chatId, $draft);
+                break;
+
+            case 3: // Service selection (multi-select toggles)
+                if (str_starts_with($input, 'RN_SVC_TOGGLE_')) {
+                    $svc = substr($input, strlen('RN_SVC_TOGGLE_'));
+                    $selected = $draft['service_types'] ?? [];
+                    if (in_array($svc, $selected, true)) {
+                        $selected = array_values(array_filter($selected, fn ($s) => $s !== $svc));
+                    } else {
+                        $selected[] = $svc;
+                    }
+                    $draft['service_types'] = $selected;
+                    $session->update(['draft_data' => $draft]);
+                    $this->promptReceiptNoteServices($chatId, $draft);
+
+                    return;
+                }
+
+                if ($input === 'RN_SVC_DONE') {
+                    if (empty($draft['service_types'])) {
+                        $draft['service_types'] = ['thay_day'];
+                    }
+                    $session->update(['draft_data' => $draft, 'current_step' => 4]);
+
+                    $this->sendMessage($chatId, "💰 *Bước 4/5*: Nhập *Giá dự kiến* (VND):\n_(Ví dụ: `50k`, `100000`, `0` nếu miễn phí, hoặc chọn nhanh)_", [
+                        'parse_mode' => 'Markdown',
+                        'reply_markup' => json_encode([
+                            'inline_keyboard' => [
+                                [
+                                    ['text' => 'Miễn phí (0 đ)', 'callback_data' => 'RN_PRICE_0'],
+                                    ['text' => '30.000 đ', 'callback_data' => 'RN_PRICE_30000'],
+                                ],
+                                [
+                                    ['text' => '50.000 đ', 'callback_data' => 'RN_PRICE_50000'],
+                                    ['text' => '100.000 đ', 'callback_data' => 'RN_PRICE_100000'],
+                                ],
+                                [
+                                    ['text' => '❌ Hủy', 'callback_data' => 'CMD_HUY'],
+                                ],
+                            ],
+                        ]),
+                    ]);
+
+                    return;
+                }
+
+                $this->promptReceiptNoteServices($chatId, $draft);
+                break;
+
+            case 4: // Estimated price
+                if (str_starts_with($input, 'RN_PRICE_')) {
+                    $price = (float) substr($input, strlen('RN_PRICE_'));
+                } else {
+                    $price = $this->parseAmount($input);
+                }
+
+                $draft['estimated_price'] = max(0, $price);
+                $session->update(['draft_data' => $draft, 'current_step' => 5]);
+
+                $this->sendMessage($chatId, "📅 *Bước 5/5*: Chọn hoặc nhập *Thời gian hẹn trả*:\n_(Ví dụ: gõ `Chiều mai`, `15:00`, `25/10`, hoặc bấm nút bên dưới)_", [
+                    'parse_mode' => 'Markdown',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                ['text' => 'Hôm nay (sau 2 tiếng)', 'callback_data' => 'RN_DATE_TODAY'],
+                                ['text' => 'Chiều nay (17:00)', 'callback_data' => 'RN_DATE_AFTERNOON'],
+                            ],
+                            [
+                                ['text' => 'Ngày mai', 'callback_data' => 'RN_DATE_TOMORROW'],
+                                ['text' => '2 ngày nữa', 'callback_data' => 'RN_DATE_2DAYS'],
+                            ],
+                            [
+                                ['text' => '❌ Hủy', 'callback_data' => 'CMD_HUY'],
+                            ],
+                        ],
+                    ]),
+                ]);
+                break;
+
+            case 5: // Appointment / return time
+                if ($input === 'RN_DATE_TODAY') {
+                    $draft['appointment_date'] = now()->toDateString();
+                    $draft['estimated_pickup_time'] = 'Hôm nay ('.now()->addHours(2)->format('H:i').')';
+                } elseif ($input === 'RN_DATE_AFTERNOON') {
+                    $draft['appointment_date'] = now()->toDateString();
+                    $draft['estimated_pickup_time'] = '17:00 chiều nay';
+                } elseif ($input === 'RN_DATE_TOMORROW') {
+                    $draft['appointment_date'] = now()->addDay()->toDateString();
+                    $draft['estimated_pickup_time'] = 'Ngày mai ('.now()->addDay()->format('d/m').')';
+                } elseif ($input === 'RN_DATE_2DAYS') {
+                    $draft['appointment_date'] = now()->addDays(2)->toDateString();
+                    $draft['estimated_pickup_time'] = '2 ngày nữa ('.now()->addDays(2)->format('d/m').')';
+                } else {
+                    $draft['appointment_date'] = now()->toDateString();
+                    $draft['estimated_pickup_time'] = trim($input);
+                }
+
+                $session->update(['draft_data' => $draft, 'current_step' => 6]);
+                $this->promptReceiptNoteConfirmation($chatId, $draft, $session);
+                break;
+
+            case 6: // Confirmation
+                if ($input === 'RN_CONFIRM_SAVE') {
+                    $user = User::where('telegram_user_id', $userId)->first();
+
+                    $createData = [
+                        'customer_name' => $draft['customer_name'] ?? 'Khách vãng lai',
+                        'customer_phone' => $draft['customer_phone'] ?? null,
+                        'service_types' => $draft['service_types'] ?? ['thay_day'],
+                        'estimated_price' => (float) ($draft['estimated_price'] ?? 0),
+                        'received_date' => now()->toDateString(),
+                        'appointment_date' => $draft['appointment_date'] ?? now()->toDateString(),
+                        'estimated_pickup_time' => $draft['estimated_pickup_time'] ?? null,
+                        'has_photos_saved' => true,
+                        'inspected_at_counter' => false,
+                        'final_amount' => (float) ($draft['estimated_price'] ?? 0),
+                        'status' => 'chua_giao',
+                        'branch_id' => $session->selected_branch_id,
+                        'created_by' => $user?->id,
+                        'telegram_user_id' => $userId,
+                    ];
+
+                    $receiptNote = $this->receiptNoteService->createReceiptNote($createData, $user, $userId);
+
+                    $session->update([
+                        'current_mode' => null,
+                        'current_step' => 0,
+                        'draft_data' => [],
+                    ]);
+
+                    $formattedPrice = number_format($receiptNote->estimated_price).' ₫';
+                    $branchName = $session->selectedBranch?->name ?? 'Chi nhánh';
+
+                    $this->sendMessage($chatId, "🎉 *TẠO PHIẾU GIAO NHẬN THÀNH CÔNG!*\n\n🔖 *Mã phiếu*: `{$receiptNote->note_code}`\n🏢 *Chi nhánh*: {$branchName}\n👤 *Khách hàng*: *{$receiptNote->customer_name}*\n📞 *SĐT*: ".($receiptNote->customer_phone ?: '_Chưa có_')."\n🛠️ *Dịch vụ*: {$receiptNote->service_labels}\n💰 *Giá dự kiến*: *{$formattedPrice}*\n📅 *Hẹn trả*: {$receiptNote->estimated_pickup_time}\n\n✅ *Đã tự động đồng bộ lên Google Sheets (sheet: Phieu_Giao_Nhan)*\n\nBạn có thể bấm /start để thực hiện giao dịch tiếp theo.", [
+                        'parse_mode' => 'Markdown',
+                        'reply_markup' => json_encode([
+                            'inline_keyboard' => [
+                                [['text' => '🔄 Quay lại Menu chính (/start)', 'callback_data' => 'CMD_START']],
+                            ],
+                        ]),
+                    ]);
+
+                    return;
+                }
+
+                $this->promptReceiptNoteConfirmation($chatId, $draft, $session);
+                break;
+        }
+    }
+
+    /**
+     * Prompt interactive service selection toggles.
+     */
+    protected function promptReceiptNoteServices(int $chatId, array $draft): void
+    {
+        $selected = $draft['service_types'] ?? [];
+
+        $isThayDay = in_array('thay_day', $selected, true);
+        $isThatLai = in_array('that_lai', $selected, true);
+        $isChinhSize = in_array('chinh_size', $selected, true);
+        $isKhac = in_array('khac', $selected, true);
+
+        $btnThayDay = ($isThayDay ? '✅' : '⬜').' Thay dây';
+        $btnThatLai = ($isThatLai ? '✅' : '⬜').' Thắt lại';
+        $btnChinhSize = ($isChinhSize ? '✅' : '⬜').' Chỉnh size';
+        $btnKhac = ($isKhac ? '✅' : '⬜').' Khác';
+
+        $this->sendMessage($chatId, "🛠️ *Bước 3/5*: Chọn *Yêu cầu dịch vụ*:\n_(Bấm vào nút để chọn/bỏ chọn, sau đó bấm TIẾP TỤC)_", [
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        ['text' => $btnThayDay, 'callback_data' => 'RN_SVC_TOGGLE_thay_day'],
+                        ['text' => $btnThatLai, 'callback_data' => 'RN_SVC_TOGGLE_that_lai'],
+                    ],
+                    [
+                        ['text' => $btnChinhSize, 'callback_data' => 'RN_SVC_TOGGLE_chinh_size'],
+                        ['text' => $btnKhac, 'callback_data' => 'RN_SVC_TOGGLE_khac'],
+                    ],
+                    [
+                        ['text' => '⏩ Tiếp tục sang bước tiếp theo ➡️', 'callback_data' => 'RN_SVC_DONE'],
+                    ],
+                    [
+                        ['text' => '❌ Hủy', 'callback_data' => 'CMD_HUY'],
+                    ],
+                ],
+            ]),
+        ]);
+    }
+
+    /**
+     * Prompt confirmation card before saving receipt note.
+     */
+    protected function promptReceiptNoteConfirmation(int $chatId, array $draft, TelegramSession $session): void
+    {
+        $branchName = $session->selectedBranch?->name ?? 'Chưa chọn';
+        $customerName = $draft['customer_name'] ?? 'Chưa có';
+        $customerPhone = ! empty($draft['customer_phone']) ? $draft['customer_phone'] : 'Chưa có';
+
+        $serviceMap = ReceiptNote::SERVICE_MAP;
+        $serviceLabels = array_map(fn ($k) => $serviceMap[$k] ?? $k, $draft['service_types'] ?? []);
+        $servicesText = ! empty($serviceLabels) ? implode(', ', $serviceLabels) : 'Thay dây';
+
+        $priceText = number_format((float) ($draft['estimated_price'] ?? 0)).' ₫';
+        $pickupTime = $draft['estimated_pickup_time'] ?? 'Hôm nay';
+
+        $summary = "📋 *XÁC NHẬN PHIẾU GIAO NHẬN MGEMS*\n"
+            ."━━━━━━━━━━━━━━━━━━━━━━\n"
+            ."🏢 *Chi nhánh*: {$branchName}\n"
+            ."👤 *Khách hàng*: *{$customerName}*\n"
+            ."📞 *Số điện thoại*: {$customerPhone}\n"
+            ."🛠️ *Dịch vụ*: *{$servicesText}*\n"
+            ."💰 *Giá dự kiến*: *{$priceText}*\n"
+            ."📅 *Hẹn trả*: *{$pickupTime}*\n"
+            ."📸 *Ảnh chatbot*: Đã ghi nhận\n"
+            ."━━━━━━━━━━━━━━━━━━━━━━\n"
+            .'👉 Bấm *Xác nhận* để lưu vào hệ thống và *đồng bộ lên Google Sheets* (`Phieu_Giao_Nhan`):';
+
+        $this->sendMessage($chatId, $summary, [
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        ['text' => '✅ Xác nhận & Đồng bộ Google Sheet', 'callback_data' => 'RN_CONFIRM_SAVE'],
+                    ],
+                    [
+                        ['text' => '❌ Hủy bỏ', 'callback_data' => 'CMD_HUY'],
+                    ],
+                ],
+            ]),
+        ]);
     }
 
     /**
@@ -1503,8 +1883,9 @@ class TelegramBotService
      */
     public function sendMessage(int $chatId, string $text, array $extra = []): ?array
     {
-        if (!$this->botToken) {
+        if (! $this->botToken) {
             Log::info("Telegram Bot Token not configured. Simulated sending to {$chatId}: {$text}");
+
             return null;
         }
 
@@ -1515,9 +1896,11 @@ class TelegramBotService
             ], $extra);
 
             $response = Http::post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $payload);
+
             return $response->json();
         } catch (\Throwable $e) {
-            Log::error("Failed to send Telegram message: " . $e->getMessage());
+            Log::error('Failed to send Telegram message: '.$e->getMessage());
+
             return null;
         }
     }
