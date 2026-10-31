@@ -113,10 +113,22 @@ else
 fi
 
 if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
+  # Ensure storage directories exist and clear any host-generated bootstrap cache files
+  mkdir -p storage/framework/{sessions,views,cache/data} storage/logs bootstrap/cache
+  chmod -R 777 storage bootstrap/cache 2>/dev/null || true
+  rm -f bootstrap/cache/config.php bootstrap/cache/routes-v7.php bootstrap/cache/packages.php bootstrap/cache/services.php
+
   if [ -f "docker-compose-prod.yml" ]; then
     docker compose -f docker-compose-prod.yml up -d "${DOCKER_ARGS[@]}"
   else
     vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
+  fi
+
+  echo "Fixing container storage permissions..."
+  if [ -f "docker-compose-prod.yml" ]; then
+    docker compose -f docker-compose-prod.yml exec -T -u root laravel.app bash -c "chown -R 1000:1000 storage bootstrap/cache && chmod -R 775 storage bootstrap/cache" || true
+  else
+    vendor/bin/sail exec -u root laravel.app bash -c "chown -R 1000:1000 storage bootstrap/cache && chmod -R 775 storage bootstrap/cache" || true
   fi
 
   echo "Ensuring backend dependencies are up to date..."
@@ -124,6 +136,13 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
     docker compose -f docker-compose-prod.yml exec -T laravel.app composer install --no-dev --prefer-dist --optimize-autoloader
   else
     vendor/bin/sail composer install --no-dev --prefer-dist --optimize-autoloader
+  fi
+
+  echo "Clearing stale cache and compiled views..."
+  if [ -f "docker-compose-prod.yml" ]; then
+    docker compose -f docker-compose-prod.yml exec -T laravel.app php artisan optimize:clear
+  else
+    vendor/bin/sail artisan optimize:clear
   fi
 
   echo "Running database migrations..."
@@ -151,8 +170,18 @@ if [ "$TARGET_ENV" = "production" ] || [ "$TARGET_ENV" = "prod" ]; then
     docker compose -f docker-compose-prod.yml exec -T laravel.app npm run build
   fi
 
+  echo "Optimizing framework for production..."
+  if [ -f "docker-compose-prod.yml" ]; then
+    docker compose -f docker-compose-prod.yml exec -T laravel.app php artisan optimize
+    docker compose -f docker-compose-prod.yml exec -T laravel.app php artisan view:cache
+  else
+    vendor/bin/sail artisan optimize
+    vendor/bin/sail artisan view:cache
+  fi
+
   echo "Production environment is ready and running."
 else
+  mkdir -p storage/framework/{sessions,views,cache/data} storage/logs bootstrap/cache
   vendor/bin/sail up -d "${DOCKER_ARGS[@]}"
 
   echo "Running database migrations..."

@@ -129,6 +129,32 @@ export default function Sidebar() {
                 },
             ],
         },
+        {
+            label: 'Quản lý Hội viên',
+            icon: '🪪',
+            children: [
+                {
+                    label: 'Danh sách thẻ',
+                    icon: '💳',
+                    href: admin_url('membership/cards'),
+                },
+                {
+                    label: 'Cấp thẻ mới',
+                    icon: '➕',
+                    href: admin_url('membership/cards/create'),
+                },
+                {
+                    label: 'Gói hội viên',
+                    icon: '🏷️',
+                    href: admin_url('membership/types'),
+                },
+                {
+                    label: 'Quét thẻ & Ưu đãi',
+                    icon: '📷',
+                    href: admin_url('membership/scanner'),
+                },
+            ],
+        },
         ...(isManagerOrAdmin
             ? [
                   {

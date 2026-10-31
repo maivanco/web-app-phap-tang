@@ -17,6 +17,10 @@ use App\Modules\CashFlow\Policies\OrderPolicy;
 use App\Modules\CashFlow\Policies\UserPolicy;
 use App\Modules\GeneralSettings\Models\Setting;
 use App\Modules\GeneralSettings\Policies\SettingPolicy;
+use App\Modules\Membership\Models\MembershipCard;
+use App\Modules\Membership\Models\MembershipType;
+use App\Modules\Membership\Policies\MembershipCardPolicy;
+use App\Modules\Membership\Policies\MembershipTypePolicy;
 use App\Modules\PayablesReceivables\Models\AccountPayable;
 use App\Modules\PayablesReceivables\Policies\AccountPayablePolicy;
 use App\Modules\QrEventGenerator\Models\Event;
@@ -46,6 +50,8 @@ class AuthServiceProvider extends ServiceProvider
         Setting::class => SettingPolicy::class,
         AccountPayable::class => AccountPayablePolicy::class,
         ReceiptNote::class => ReceiptNotePolicy::class,
+        MembershipType::class => MembershipTypePolicy::class,
+        MembershipCard::class => MembershipCardPolicy::class,
     ];
 
     /**

@@ -72,3 +72,8 @@ if (file_exists(app_path('Modules/PayablesReceivables/routes.php'))) {
 if (file_exists(app_path('Modules/ReceiptNotes/routes.php'))) {
     require app_path('Modules/ReceiptNotes/routes.php');
 }
+
+// Load Membership Module routes
+if (file_exists(app_path('Modules/Membership/routes.php'))) {
+    require app_path('Modules/Membership/routes.php');
+}

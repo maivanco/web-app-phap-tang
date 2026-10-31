@@ -2,6 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Modules\CashFlow\database\seeders\CashFlowSeeder;
+use App\Modules\Membership\database\seeders\MembershipTypeSeeder;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -12,6 +14,8 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(UserSeeder::class);
-        $this->call(\App\Modules\CashFlow\database\seeders\CashFlowSeeder::class);
+        $this->call(CashFlowSeeder::class);
+        $this->call(MembershipTypeSeeder::class);
+        $this->call(MembershipTypeSeeder::class);
     }
 }
