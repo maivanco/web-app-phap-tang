@@ -7,6 +7,7 @@ use App\Modules\Membership\Mail\MembershipCardMail;
 use App\Modules\Membership\Models\MembershipCard;
 use Exception;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Testing\Fakes\MailFake;
 
 class MembershipCardMailService
@@ -61,6 +62,7 @@ class MembershipCardMailService
      */
     protected function sendViaBrevo(MembershipCard $card): void
     {
+        $qrPath = $this->qrService->storeQrImage($card);
         $qrImageUrl = $this->qrService->getQrImageUrl($card);
         $typeName = $card->membershipType?->name ?? 'Hội Viên';
         $subject = "🪪 [Thẻ Hội Viên] Kích hoạt thành công thẻ {$typeName} - Mã thẻ: {$card->card_code}";
@@ -71,12 +73,20 @@ class MembershipCardMailService
             'qrImageUrl' => $qrImageUrl,
         ])->render();
 
+        $attachments = [];
+        if (Storage::disk('public')->exists($qrPath)) {
+            $attachments[] = [
+                'name' => 'QR-'.$card->card_code.'.png',
+                'content' => base64_encode(Storage::disk('public')->get($qrPath)),
+            ];
+        }
+
         $result = $this->brevoService->sendEmail(
             recipientEmail: $card->customer_email,
             subject: $subject,
             htmlContent: $htmlContent,
             recipientName: $card->customer_name,
-            attachments: []
+            attachments: $attachments
         );
 
         if (! $result['success']) {

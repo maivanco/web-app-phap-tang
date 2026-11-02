@@ -206,7 +206,7 @@ class MembershipCardController extends Controller
             Log::error('Failed to send membership email: '.$e->getMessage(), [
                 'card_code' => $card->card_code,
             ]);
-            $emailNotice = ' (Lưu ý: Không thể gửi email ngay lúc này, quý khách có thể gửi lại sau)';
+            $emailNotice = ' (Lưu ý: Không thể gửi email qua Brevo: '.$e->getMessage().')';
         }
 
         return redirect()->route('admin.membership.cards.show', $card)

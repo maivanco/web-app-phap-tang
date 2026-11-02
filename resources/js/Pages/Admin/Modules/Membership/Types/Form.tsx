@@ -126,7 +126,7 @@ export default function Form({ auth, type }: FormProps) {
 
                         <div>
                             <RichTextEditor
-                                label="Mô tả chi tiết quyền lợi (Soạn thảo văn bản phong phú)"
+                                label="Mô tả chi tiết quyền lợi"
                                 value={data.description}
                                 onChange={(content) => setData('description', content)}
                                 placeholder="Soạn thảo thông tin chi tiết, định dạng in đậm, danh sách hoặc trích dẫn..."

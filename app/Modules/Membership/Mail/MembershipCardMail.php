@@ -10,6 +10,7 @@ use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Storage;
 
 class MembershipCardMail extends Mailable
 {
@@ -62,6 +63,15 @@ class MembershipCardMail extends Mailable
      */
     public function attachments(): array
     {
+        $path = $this->card->qr_image_path ?: ('membership-qr/'.$this->card->card_code.'.png');
+        if (Storage::disk('public')->exists($path)) {
+            return [
+                Attachment::fromStorageDisk('public', $path)
+                    ->as('QR-'.$this->card->card_code.'.png')
+                    ->withMime('image/png'),
+            ];
+        }
+
         return [];
     }
 }
